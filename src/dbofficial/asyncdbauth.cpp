@@ -72,7 +72,7 @@ AsyncDBAuth::HandleResult(mysqlpp::Query &/*query*/, DBIdManager& /*idManager*/,
 			if (!last_ip.is_null())
 				last_ip.to_string(tmpData->last_ip);
 
-			boost::asio::post(boost::bind(service, &ServerDBCallback::PlayerLoginSuccess, &cb, GetId(), tmpData));
+			boost::asio::post(service, boost::bind(&ServerDBCallback::PlayerLoginSuccess, &cb, GetId(), tmpData));
 		}
 	}
 }

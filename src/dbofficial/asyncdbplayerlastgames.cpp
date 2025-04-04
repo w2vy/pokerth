@@ -45,18 +45,18 @@ AsyncDBPlayerLastGames::~AsyncDBPlayerLastGames()
 }
 
 void
-AsyncDBPlayerLastGames::HandleResult(mysqlpp::Query &/*query*/, DBIdManager &/*idManager*/, mysqlpp::StoreQueryResult &/*result*/, boost::asio::io_service &service, ServerDBCallback &cb)
+AsyncDBPlayerLastGames::HandleResult(mysqlpp::Query &/*query*/, DBIdManager &/*idManager*/, mysqlpp::StoreQueryResult &/*result*/, boost::asio::io_context &service, ServerDBCallback &cb)
 {
 	// This query does not produce a result.
 	HandleError(service, cb);
 }
 
 void
-AsyncDBPlayerLastGames::HandleNoResult(mysqlpp::Query &/*query*/, DBIdManager& /*idManager*/, boost::asio::io_service &/*service*/, ServerDBCallback &/*cb*/)
+AsyncDBPlayerLastGames::HandleNoResult(mysqlpp::Query &/*query*/, DBIdManager& /*idManager*/, boost::asio::io_context &/*service*/, ServerDBCallback &/*cb*/)
 {
 }
 
 void
-AsyncDBPlayerLastGames::HandleError(boost::asio::io_service &service, ServerDBCallback &cb)
+AsyncDBPlayerLastGames::HandleError(boost::asio::io_context &service, ServerDBCallback &cb)
 {
 }
