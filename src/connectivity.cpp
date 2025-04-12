@@ -150,7 +150,7 @@ main(int argc, char *argv[])
 			return 1;
 		}
 
-		string server(vm["server"].as<string>());
+		string server = vm["server"].as<string>();
 		string port = vm["port"].as<string>();
 		int mode = vm["mode"].as<int>();
 		string username(vm["username"].as<string>());
@@ -176,15 +176,11 @@ main(int argc, char *argv[])
 		// Connect to the PokerTH server.
 		boost::timers::portable::microsec_timer perfTimer;
 		boost::asio::io_context io_service;
-		tcp::resolver resolver(io_service);
-		tcp::resolver::results_type endpoint_iterator = resolver.resolve(server, port);
-		tcp::resolver::results_type end;
-		tcp::socket socket(io_service);
-		boost::system::error_code error = boost::asio::error::host_not_found;
-		while (error && endpoint_iterator != end) {
-			socket.close();
-			socket.connect(*endpoint_iterator++, error);
-		}
+		boost::asio::ip::tcp::socket socket(io_service);
+		boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address(server), std::stoi( port ));
+		boost::system::error_code error;
+		socket.connect(endpoint, error);
+
 		if (error) {
 			cout << "Connect failed" << endl;
 			return 1;
