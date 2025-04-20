@@ -270,6 +270,16 @@ f_join_failed_reason = ProtoField.uint32("pokerth.joinfailed.reason", "Failure R
     [12] = "No Spectators Allowed"
 })
 
+f_admin_changed_game_id = ProtoField.uint32("pokerth.adminchanged.gameid", "Game ID", base.DEC)
+f_admin_changed_new_admin = ProtoField.uint32("pokerth.adminchanged.newadmin", "New Admin Player ID", base.DEC)
+
+f_game_update_game_id = ProtoField.uint32("pokerth.update.gameid", "Game ID", base.DEC)
+f_game_update_game_mode = ProtoField.uint32("pokerth.update.gamemode", "Game Mode", base.DEC, {
+    [1] = "Created",
+    [2] = "Started",
+    [3] = "Closed"
+})
+
 p_pokerth.fields = {
     -- Common header fields
     f_length, f_type,
@@ -302,6 +312,8 @@ p_pokerth.fields = {
     f_join_game_password, f_join_game_autoleave,
     f_join_existing_game_id, f_join_existing_password, f_join_existing_autoleave, f_join_existing_spectate,
     f_join_failed_game_id, f_join_failed_reason,
+    f_admin_changed_game_id, f_admin_changed_new_admin,
+    f_game_update_game_id, f_game_update_game_mode,
     f_error_reason
 }
 
@@ -1138,15 +1150,64 @@ function parse_join_game_failed_message(tvb, tree)
     end
 end
 
+function parse_game_list_admin_changed_message(tvb, tree)
+    local offset = 0
+
+    while offset < tvb:len() do
+        local header = read_protobuf_field_header(tvb, offset)
+
+        if header.field_number == 1 and header.wire_type == 0 then
+            local val, len = read_varint(tvb, header.next_offset)
+            tree:add(f_admin_changed_game_id, tvb(header.next_offset, len), val)
+            offset = header.next_offset + len
+
+        elseif header.field_number == 2 and header.wire_type == 0 then
+            local val, len = read_varint(tvb, header.next_offset)
+            tree:add(f_admin_changed_new_admin, tvb(header.next_offset, len), val)
+            offset = header.next_offset + len
+
+        else
+            tree:add_expert_info(PI_UNDECODED, PI_NOTE,
+                string.format("Unhandled field in GameListAdminChangedMessage: field=%d wire=%d", header.field_number, header.wire_type))
+            offset = header.next_offset + (header.length or 0)
+        end
+    end
+end
+
+function parse_game_list_update_message(tvb, tree)
+    local offset = 0
+
+    while offset < tvb:len() do
+        local header = read_protobuf_field_header(tvb, offset)
+
+        if header.field_number == 1 and header.wire_type == 0 then
+            local val, len = read_varint(tvb, header.next_offset)
+            tree:add(f_game_update_game_id, tvb(header.next_offset, len), val)
+            offset = header.next_offset + len
+
+        elseif header.field_number == 2 and header.wire_type == 0 then
+            local val, len = read_varint(tvb, header.next_offset)
+            tree:add(f_game_update_game_mode, tvb(header.next_offset, len), val)
+            offset = header.next_offset + len
+
+        else
+            tree:add_expert_info(PI_UNDECODED, PI_NOTE,
+                string.format("Unhandled field in GameListUpdateMessage: field=%d wire=%d", header.field_number, header.wire_type))
+            offset = header.next_offset + (header.length or 0)
+        end
+    end
+end
+
 -- Dispatcher function table
 local MESSAGE_TYPE_ANNOUNCE = 1
 local MESSAGE_TYPE_INIT = 2
 local MESSAGE_TYPE_INIT_ACK = 6
 local MESSAGE_TYPE_PLAYERLIST = 12
 local MESSAGE_TYPE_GAME_LIST_NEW = 13
---local MESSAGE_TYPE_GAME_LIST_UPDATE= 14
+local MESSAGE_TYPE_GAME_LIST_UPDATE = 14
 local MESSAGE_TYPE_PLAYER_JOINED = 15
 local MESSAGE_TYPE_PLAYER_LEFT = 16
+local MESSAGE_TYPE_GAME_LIST_ADMIN_CHANGE = 17
 local MESSAGE_TYPE_PLAYER_INFO_REQUEST = 18
 local MESSAGE_TYPE_PLAYER_INFO_REPLY = 19
 local MESSAGE_TYPE_JOIN_EXISTING_GAME = 21
@@ -1163,6 +1224,10 @@ local message_parsers = {
     [MESSAGE_TYPE_INIT_ACK] = parse_init_ack_message,
     [MESSAGE_TYPE_PLAYERLIST] = parse_player_list_message,
     [MESSAGE_TYPE_GAME_LIST_NEW] = parse_game_list_new_message,
+    [MESSAGE_TYPE_GAME_LIST_UPDATE] = parse_game_list_update_message,
+    [MESSAGE_TYPE_PLAYER_JOINED] = parse_game_list_player_joined_message,
+    [MESSAGE_TYPE_PLAYER_LEFT] = parse_game_list_player_left_message,
+    [MESSAGE_TYPE_GAME_LIST_ADMIN_CHANGE] = parse_game_list_admin_changed_message,
     [MESSAGE_TYPE_PLAYER_INFO_REQUEST] = parse_player_info_request_message,
     [MESSAGE_TYPE_PLAYER_INFO_REPLY] = parse_player_info_reply_message,
     [MESSAGE_TYPE_JOIN_EXISTING_GAME] = parse_join_existing_game_message,
@@ -1171,8 +1236,6 @@ local message_parsers = {
     [MESSAGE_TYPE_CHAT_REQUEST] = parse_chat_request_message,
     [MESSAGE_TYPE_CHAT_MESSAGE] = parse_chat_message,
     [MESSAGE_TYPE_SPECTATOR_JOINED] = parse_game_list_spectator_joined_message,
-    [MESSAGE_TYPE_PLAYER_JOINED] = parse_game_list_player_joined_message,
-    [MESSAGE_TYPE_PLAYER_LEFT] = parse_game_list_player_left_message,
     [MESSAGE_TYPE_ERROR] = parse_error_message
 }
 
