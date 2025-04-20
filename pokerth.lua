@@ -102,6 +102,9 @@ local login_types = {
     [2] = "Unauthenticated"
 }
 
+-- Global Fields
+f_game_id = ProtoField.uint32("pokerth.game_id", "Game ID", base.DEC)
+
 -- Fields
 local f_length = ProtoField.uint32("pokerth.length", "Packet Length", base.DEC)
 local f_type = ProtoField.uint8("pokerth.type", "Message Type", base.DEC, message_type_names)
@@ -159,7 +162,7 @@ f_gamelist_game_info   = ProtoField.bytes("pokerth.gamelist.game_info", "NetGame
 f_gamelist_spectators  = ProtoField.bytes("pokerth.gamelist.spectators", "Spectator IDs")
 f_gamelist_spectator_id = ProtoField.uint32("pokerth.gamelist.spectator_id", "Spectator ID", base.DEC)
 
-f_game_id = ProtoField.uint32("pokerth.game.id", "Game ID", base.DEC)
+f_game_game_id = ProtoField.uint32("pokerth.game.id", "Game ID", base.DEC)
 f_game_mode = ProtoField.uint32("pokerth.game.mode", "Game Mode", base.DEC)
 f_game_is_private = ProtoField.bool("pokerth.game.private", "Is Private")
 f_game_admin_id = ProtoField.uint32("pokerth.game.adminid", "Admin Player ID", base.DEC)
@@ -282,7 +285,7 @@ f_game_update_game_mode = ProtoField.uint32("pokerth.update.gamemode", "Game Mod
 
 p_pokerth.fields = {
     -- Common header fields
-    f_length, f_type,
+    f_length, f_type, f_game_id,
 
     -- AnnounceMessage fields
     f_version_major, f_version_minor, f_announce_beta_rev, f_announce_server_type, f_announce_num_players,
@@ -296,7 +299,7 @@ p_pokerth.fields = {
     f_gamelist_players, f_gamelist_players_id,
     f_gamelist_admin_id, f_gamelist_game_info,
     f_gamelist_spectators, f_gamelist_spectator_id,
-    f_game_id, f_game_mode, f_game_is_private, f_game_admin_id, f_game_player_ids, f_game_spectator_ids,
+    f_game_game_id, f_game_mode, f_game_is_private, f_game_admin_id, f_game_player_ids, f_game_spectator_ids,
     f_gameinfo_name, f_gameinfo_type, f_gameinfo_max_players,
     f_gameinfo_raise_mode, f_gameinfo_raise_hands, f_gameinfo_raise_minutes,
     f_gameinfo_end_mode, f_gameinfo_end_blind, f_gameinfo_gui_speed,
@@ -701,6 +704,7 @@ function parse_game_list_new_message(tvb, tree)
         if field_number == 1 and wire_type == 0 then -- gameId
             local value, size = read_varint(tvb, offset)
             tree:add(f_gamelist_game_id, value)
+            tree:add(f_game_id, value)
             offset = offset + size
 
         elseif field_number == 2 and wire_type == 0 then -- gameMode (enum)
@@ -884,6 +888,7 @@ function parse_chat_message(tvb, tree)
         if field_number == 1 and wire_type == 0 then  -- gameId
             local value, size = read_varint(tvb, offset)
             tree:add(f_chat_game_id, tvb(offset, size), value)
+            tree:add(f_game_id, tvb(offset, size), value)
             offset = offset + size
 
         elseif field_number == 2 and wire_type == 0 then  -- playerId
@@ -924,6 +929,7 @@ function parse_game_list_spectator_joined_message(tvb, tree)
         if field_number == 1 and wire_type == 0 then  -- gameId
             local value, size = read_varint(tvb, offset)
             tree:add(f_spectator_game_id, tvb(offset, size), value)
+            tree:add(f_game_id, tvb(offset, size), value)
             offset = offset + size
 
         elseif field_number == 2 and wire_type == 0 then  -- playerId
@@ -951,6 +957,7 @@ function parse_game_list_player_joined_message(tvb, tree)
     if field_number == 1 and wire_type == 0 then
         local game_id, varint_len = read_varint(tvb, offset)
         tree:add(f_player_joined_gameid, tvb(offset, varint_len), game_id)
+        tree:add(f_game_id, tvb(offset, varint_len), game_id)
         offset = offset + varint_len
     end
 
@@ -979,6 +986,7 @@ function parse_game_list_player_left_message(tvb, tree)
     if field_number == 1 and wire_type == 0 then
         local game_id, varint_len = read_varint(tvb, offset)
         tree:add(f_player_left_gameid, tvb(offset, varint_len), game_id)
+        tree:add(f_game_id, tvb(offset, varint_len), game_id)
         offset = offset + varint_len
     end
 
@@ -1009,6 +1017,7 @@ function parse_chat_request_message(tvb, tree)
             -- targetGameId
             local value, len = read_varint(tvb, offset)
             tree:add(f_chatreq_target_game_id, tvb(offset, len), value)
+            tree:add(f_game_id, tvb(offset, len), value)
             offset = offset + len
 
         elseif field_number == 2 and wire_type == 0 then
@@ -1101,6 +1110,7 @@ function parse_join_existing_game_message(tvb, tree)
         if header.field_number == 1 and header.wire_type == 0 then
             local val, len = read_varint(tvb, header.next_offset)
             tree:add(f_join_existing_game_id, tvb(header.next_offset, len), val)
+            tree:add(f_game_id, tvb(header.next_offset, len), val)
             offset = header.next_offset + len
 
         elseif header.field_number == 2 and header.wire_type == 2 then
@@ -1135,6 +1145,7 @@ function parse_join_game_failed_message(tvb, tree)
         if header.field_number == 1 and header.wire_type == 0 then
             local val, len = read_varint(tvb, header.next_offset)
             tree:add(f_join_failed_game_id, tvb(header.next_offset, len), val)
+            tree:add(f_game_id, tvb(header.next_offset, len), val)
             offset = header.next_offset + len
 
         elseif header.field_number == 2 and header.wire_type == 0 then
@@ -1159,6 +1170,7 @@ function parse_game_list_admin_changed_message(tvb, tree)
         if header.field_number == 1 and header.wire_type == 0 then
             local val, len = read_varint(tvb, header.next_offset)
             tree:add(f_admin_changed_game_id, tvb(header.next_offset, len), val)
+            tree:add(f_game_id, tvb(header.next_offset, len), val)
             offset = header.next_offset + len
 
         elseif header.field_number == 2 and header.wire_type == 0 then
@@ -1183,6 +1195,7 @@ function parse_game_list_update_message(tvb, tree)
         if header.field_number == 1 and header.wire_type == 0 then
             local val, len = read_varint(tvb, header.next_offset)
             tree:add(f_game_update_game_id, tvb(header.next_offset, len), val)
+            tree:add(f_game_id, tvb(header.next_offset, len), val)
             offset = header.next_offset + len
 
         elseif header.field_number == 2 and header.wire_type == 0 then
