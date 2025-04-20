@@ -159,6 +159,13 @@ f_gamelist_game_info   = ProtoField.bytes("pokerth.gamelist.game_info", "NetGame
 f_gamelist_spectators  = ProtoField.bytes("pokerth.gamelist.spectators", "Spectator IDs")
 f_gamelist_spectator_id = ProtoField.uint32("pokerth.gamelist.spectator_id", "Spectator ID", base.DEC)
 
+f_game_id = ProtoField.uint32("pokerth.game.id", "Game ID", base.DEC)
+f_game_mode = ProtoField.uint32("pokerth.game.mode", "Game Mode", base.DEC)
+f_game_is_private = ProtoField.bool("pokerth.game.private", "Is Private")
+f_game_admin_id = ProtoField.uint32("pokerth.game.adminid", "Admin Player ID", base.DEC)
+f_game_player_ids = ProtoField.uint32("pokerth.game.playerid", "Player ID", base.DEC)
+f_game_spectator_ids = ProtoField.uint32("pokerth.game.spectatorid", "Spectator ID", base.DEC)
+
 -- NetGameInfo fields
 local f_gameinfo_name = ProtoField.string("pokerth.gameinfo.name", "Game Name")
 local f_gameinfo_type = ProtoField.uint32("pokerth.gameinfo.type", "Net Game Type", base.DEC, {
@@ -239,6 +246,30 @@ f_error_reason = ProtoField.uint32("pokerth.error.reason", "Error Reason", base.
     [14] = "sessionTimeout"
 })
 
+f_join_game_password = ProtoField.string("pokerth.joinnewgame.password", "Password")
+f_join_game_autoleave = ProtoField.bool("pokerth.joinnewgame.autoleave", "Auto Leave")
+
+f_join_existing_game_id = ProtoField.uint32("pokerth.joinexisting.gameid", "Game ID", base.DEC)
+f_join_existing_password = ProtoField.string("pokerth.joinexisting.password", "Password")
+f_join_existing_autoleave = ProtoField.bool("pokerth.joinexisting.autoleave", "Auto Leave")
+f_join_existing_spectate = ProtoField.bool("pokerth.joinexisting.spectate", "Spectate Only")
+
+f_join_failed_game_id = ProtoField.uint32("pokerth.joinfailed.gameid", "Game ID", base.DEC)
+f_join_failed_reason = ProtoField.uint32("pokerth.joinfailed.reason", "Failure Reason", base.DEC, {
+    [1] = "Invalid Game",
+    [2] = "Game is Full",
+    [3] = "Game is Running",
+    [4] = "Invalid Password",
+    [5] = "Not Allowed as Guest",
+    [6] = "Not Invited",
+    [7] = "Game Name in Use",
+    [8] = "Bad Game Name",
+    [9] = "Invalid Settings",
+    [10] = "IP Address Blocked",
+    [11] = "Rejoin Failed",
+    [12] = "No Spectators Allowed"
+})
+
 p_pokerth.fields = {
     -- Common header fields
     f_length, f_type,
@@ -255,6 +286,7 @@ p_pokerth.fields = {
     f_gamelist_players, f_gamelist_players_id,
     f_gamelist_admin_id, f_gamelist_game_info,
     f_gamelist_spectators, f_gamelist_spectator_id,
+    f_game_id, f_game_mode, f_game_is_private, f_game_admin_id, f_game_player_ids, f_game_spectator_ids,
     f_gameinfo_name, f_gameinfo_type, f_gameinfo_max_players,
     f_gameinfo_raise_mode, f_gameinfo_raise_hands, f_gameinfo_raise_minutes,
     f_gameinfo_end_mode, f_gameinfo_end_blind, f_gameinfo_gui_speed,
@@ -267,6 +299,9 @@ p_pokerth.fields = {
     f_player_joined_gameid, f_player_joined_playerid,
     f_player_left_gameid, f_player_left_playerid,
     f_chatreq_target_game_id, f_chatreq_target_player_id, f_chatreq_text,
+    f_join_game_password, f_join_game_autoleave,
+    f_join_existing_game_id, f_join_existing_password, f_join_existing_autoleave, f_join_existing_spectate,
+    f_join_failed_game_id, f_join_failed_reason,
     f_error_reason
 }
 
@@ -299,7 +334,7 @@ function read_protobuf_field_header(tvb, offset)
     local field_number = bit.rshift(tag, 3)
     local wire_type = bit.band(tag, 0x07)
 
-    local length = nil
+    local length = 0
     local length_len = 0
 
     -- Handle length-delimited (wire type 2)
@@ -833,7 +868,7 @@ function parse_chat_message(tvb, tree)
         local wire_type = bit.band(tag, 0x07)
         offset = offset + 1
 
-        tree:add_expert_info(PI_INFO, PI_COMMENT, string.format("tag %x offset %d field %d wire %d", tag, offset, field_number, wire_type))
+        --tree:add_expert_info(PI_INFO, PI_COMMENT, string.format("tag %x offset %d field %d wire %d", tag, offset, field_number, wire_type))
         if field_number == 1 and wire_type == 0 then  -- gameId
             local value, size = read_varint(tvb, offset)
             tree:add(f_chat_game_id, tvb(offset, size), value)
@@ -1014,16 +1049,109 @@ function parse_error_message(tvb, tree)
     end
 end
 
+function parse_join_new_game_message(tvb, tree)
+    local offset = 0
+
+    while offset < tvb:len() do
+        local header = read_protobuf_field_header(tvb, offset)
+
+        if header.field_number == 1 and header.wire_type == 2 then
+            local sub_tvb = tvb(header.next_offset, header.length)
+            local gi_tree = tree:add("Game Info")
+            parse_net_game_info(sub_tvb, gi_tree)
+            offset = header.next_offset + header.length
+
+        elseif header.field_number == 2 and header.wire_type == 2 then
+            local str = tvb(header.next_offset, header.length):string()
+            tree:add(f_join_game_password, tvb(header.next_offset, header.length), str)
+            offset = header.next_offset + header.length
+
+        elseif header.field_number == 3 and header.wire_type == 0 then
+            local val, len = read_varint(tvb, header.next_offset)
+            tree:add(f_join_game_autoleave, tvb(header.next_offset, len), val ~= 0)
+            offset = header.next_offset + len
+
+        else
+            tree:add_expert_info(PI_UNDECODED, PI_NOTE,
+                string.format("Unhandled field in JoinNewGameMessage: field=%d wire=%d", header.field_number, header.wire_type))
+            -- try to skip unknown field if possible
+            offset = header.next_offset
+        end
+    end
+end
+
+function parse_join_existing_game_message(tvb, tree)
+    local offset = 0
+
+    while offset < tvb:len() do
+        local header = read_protobuf_field_header(tvb, offset)
+
+        if header.field_number == 1 and header.wire_type == 0 then
+            local val, len = read_varint(tvb, header.next_offset)
+            tree:add(f_join_existing_game_id, tvb(header.next_offset, len), val)
+            offset = header.next_offset + len
+
+        elseif header.field_number == 2 and header.wire_type == 2 then
+            local str = tvb(header.next_offset, header.length):string()
+            tree:add(f_join_existing_password, tvb(header.next_offset, header.length), str)
+            offset = header.next_offset + header.length
+
+        elseif header.field_number == 3 and header.wire_type == 0 then
+            local val, len = read_varint(tvb, header.next_offset)
+            tree:add(f_join_existing_autoleave, tvb(header.next_offset, len), val ~= 0)
+            offset = header.next_offset + len
+
+        elseif header.field_number == 4 and header.wire_type == 0 then
+            local val, len = read_varint(tvb, header.next_offset)
+            tree:add(f_join_existing_spectate, tvb(header.next_offset, len), val ~= 0)
+            offset = header.next_offset + len
+
+        else
+            tree:add_expert_info(PI_UNDECODED, PI_NOTE,
+                string.format("Unhandled field in JoinExistingGameMessage: field=%d wire=%d", header.field_number, header.wire_type))
+            offset = header.next_offset + (header.length or 0)
+        end
+    end
+end
+
+function parse_join_game_failed_message(tvb, tree)
+    local offset = 0
+
+    while offset < tvb:len() do
+        local header = read_protobuf_field_header(tvb, offset)
+
+        if header.field_number == 1 and header.wire_type == 0 then
+            local val, len = read_varint(tvb, header.next_offset)
+            tree:add(f_join_failed_game_id, tvb(header.next_offset, len), val)
+            offset = header.next_offset + len
+
+        elseif header.field_number == 2 and header.wire_type == 0 then
+            local val, len = read_varint(tvb, header.next_offset)
+            tree:add(f_join_failed_reason, tvb(header.next_offset, len), val)
+            offset = header.next_offset + len
+
+        else
+            tree:add_expert_info(PI_UNDECODED, PI_NOTE,
+                string.format("Unhandled field in JoinGameFailedMessage: field=%d wire=%d", header.field_number, header.wire_type))
+            offset = header.next_offset + (header.length or 0)
+        end
+    end
+end
+
 -- Dispatcher function table
 local MESSAGE_TYPE_ANNOUNCE = 1
 local MESSAGE_TYPE_INIT = 2
 local MESSAGE_TYPE_INIT_ACK = 6
 local MESSAGE_TYPE_PLAYERLIST = 12
 local MESSAGE_TYPE_GAME_LIST_NEW = 13
+--local MESSAGE_TYPE_GAME_LIST_UPDATE= 14
 local MESSAGE_TYPE_PLAYER_JOINED = 15
 local MESSAGE_TYPE_PLAYER_LEFT = 16
 local MESSAGE_TYPE_PLAYER_INFO_REQUEST = 18
 local MESSAGE_TYPE_PLAYER_INFO_REPLY = 19
+local MESSAGE_TYPE_JOIN_EXISTING_GAME = 21
+local MESSAGE_TYPE_JOIN_NEW_GAME = 22
+local MESSAGE_TYPE_JOIN_GAME_FAILED = 25
 local MESSAGE_TYPE_CHAT_REQUEST = 63
 local MESSAGE_TYPE_CHAT_MESSAGE = 64
 local MESSAGE_TYPE_ERROR = 73
@@ -1037,6 +1165,9 @@ local message_parsers = {
     [MESSAGE_TYPE_GAME_LIST_NEW] = parse_game_list_new_message,
     [MESSAGE_TYPE_PLAYER_INFO_REQUEST] = parse_player_info_request_message,
     [MESSAGE_TYPE_PLAYER_INFO_REPLY] = parse_player_info_reply_message,
+    [MESSAGE_TYPE_JOIN_EXISTING_GAME] = parse_join_existing_game_message,
+    [MESSAGE_TYPE_JOIN_NEW_GAME] = parse_join_new_game_message,
+    [MESSAGE_TYPE_JOIN_GAME_FAILED] = parse_join_game_failed_message,
     [MESSAGE_TYPE_CHAT_REQUEST] = parse_chat_request_message,
     [MESSAGE_TYPE_CHAT_MESSAGE] = parse_chat_message,
     [MESSAGE_TYPE_SPECTATOR_JOINED] = parse_game_list_spectator_joined_message,
