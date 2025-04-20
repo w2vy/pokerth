@@ -700,17 +700,17 @@ function parse_game_list_new_message(tvb, tree)
 
         if field_number == 1 and wire_type == 0 then -- gameId
             local value, size = read_varint(tvb, offset)
-            tree:add(f_gamelist_game_id, tvb(offset, size))
+            tree:add(f_gamelist_game_id, value)
             offset = offset + size
 
         elseif field_number == 2 and wire_type == 0 then -- gameMode (enum)
             local value, size = read_varint(tvb, offset)
-            tree:add(f_gamelist_game_mode, tvb(offset, size)):append_text(" (" .. tostring(value) .. ")")
+            tree:add(f_gamelist_game_mode, value)
             offset = offset + size
 
         elseif field_number == 3 and wire_type == 0 then -- isPrivate (bool)
             local value, size = read_varint(tvb, offset)
-            tree:add(f_gamelist_private, tvb(offset, size))
+            tree:add(f_gamelist_private, value)
             offset = offset + size
 
         elseif field_number == 4 and wire_type == 2 then -- repeated uint32 playerIds [packed]
@@ -719,13 +719,13 @@ function parse_game_list_new_message(tvb, tree)
             local end_offset = offset + len
             while offset < end_offset do
                 local value, size = read_varint(tvb, offset)
-                tree:add(f_gamelist_players_id, tvb(offset, size)):append_text(" (" .. tostring(value) .. ")")
+                tree:add(f_gamelist_players_id, value)
                 offset = offset + size
             end
 
         elseif field_number == 5 and wire_type == 0 then -- adminPlayerId
             local value, size = read_varint(tvb, offset)
-            tree:add(f_gamelist_admin_id, tvb(offset, size))
+            tree:add(f_gamelist_admin_id, value)
             offset = offset + size
 
         elseif field_number == 6 and wire_type == 2 then -- NetGameInfo
@@ -741,7 +741,7 @@ function parse_game_list_new_message(tvb, tree)
             local end_offset = offset + len
             while offset < end_offset do
                 local value, size = read_varint(tvb, offset)
-                tree:add(f_gamelist_spectator_id, tvb(offset, size)):append_text(" (" .. tostring(value) .. ")")
+                tree:add(f_gamelist_spectator_id, value)
                 offset = offset + size
             end
 
