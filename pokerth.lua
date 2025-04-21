@@ -103,7 +103,8 @@ local login_types = {
 }
 
 -- Global Fields
-f_game_id = ProtoField.uint32("pokerth.game_id", "Game ID", base.DEC)
+--f_game_id = ProtoField.uint32("pokerth.game_id", "Game ID", base.DEC):set_hidden()
+f_game_id = ProtoField.uint32("pokerth.game_id", "Game ID", base.DEC, nil, nil, "Global Game ID")
 
 -- Fields
 local f_length = ProtoField.uint32("pokerth.length", "Packet Length", base.DEC)
@@ -704,7 +705,7 @@ function parse_game_list_new_message(tvb, tree)
         if field_number == 1 and wire_type == 0 then -- gameId
             local value, size = read_varint(tvb, offset)
             tree:add(f_gamelist_game_id, value)
-            tree:add(f_game_id, value)
+            tree:add(f_game_id, value):set_hidden()
             offset = offset + size
 
         elseif field_number == 2 and wire_type == 0 then -- gameMode (enum)
@@ -888,7 +889,7 @@ function parse_chat_message(tvb, tree)
         if field_number == 1 and wire_type == 0 then  -- gameId
             local value, size = read_varint(tvb, offset)
             tree:add(f_chat_game_id, tvb(offset, size), value)
-            tree:add(f_game_id, tvb(offset, size), value)
+            tree:add(f_game_id, tvb(offset, size), value):set_hidden()
             offset = offset + size
 
         elseif field_number == 2 and wire_type == 0 then  -- playerId
@@ -929,7 +930,7 @@ function parse_game_list_spectator_joined_message(tvb, tree)
         if field_number == 1 and wire_type == 0 then  -- gameId
             local value, size = read_varint(tvb, offset)
             tree:add(f_spectator_game_id, tvb(offset, size), value)
-            tree:add(f_game_id, tvb(offset, size), value)
+            tree:add(f_game_id, tvb(offset, size), value):set_hidden()
             offset = offset + size
 
         elseif field_number == 2 and wire_type == 0 then  -- playerId
@@ -957,7 +958,7 @@ function parse_game_list_player_joined_message(tvb, tree)
     if field_number == 1 and wire_type == 0 then
         local game_id, varint_len = read_varint(tvb, offset)
         tree:add(f_player_joined_gameid, tvb(offset, varint_len), game_id)
-        tree:add(f_game_id, tvb(offset, varint_len), game_id)
+        tree:add(f_game_id, tvb(offset, varint_len), game_id):set_hidden()
         offset = offset + varint_len
     end
 
@@ -986,7 +987,7 @@ function parse_game_list_player_left_message(tvb, tree)
     if field_number == 1 and wire_type == 0 then
         local game_id, varint_len = read_varint(tvb, offset)
         tree:add(f_player_left_gameid, tvb(offset, varint_len), game_id)
-        tree:add(f_game_id, tvb(offset, varint_len), game_id)
+        tree:add(f_game_id, tvb(offset, varint_len), game_id):set_hidden()
         offset = offset + varint_len
     end
 
@@ -1017,7 +1018,7 @@ function parse_chat_request_message(tvb, tree)
             -- targetGameId
             local value, len = read_varint(tvb, offset)
             tree:add(f_chatreq_target_game_id, tvb(offset, len), value)
-            tree:add(f_game_id, tvb(offset, len), value)
+            tree:add(f_game_id, tvb(offset, len), value):set_hidden()
             offset = offset + len
 
         elseif field_number == 2 and wire_type == 0 then
@@ -1110,7 +1111,7 @@ function parse_join_existing_game_message(tvb, tree)
         if header.field_number == 1 and header.wire_type == 0 then
             local val, len = read_varint(tvb, header.next_offset)
             tree:add(f_join_existing_game_id, tvb(header.next_offset, len), val)
-            tree:add(f_game_id, tvb(header.next_offset, len), val)
+            tree:add(f_game_id, tvb(header.next_offset, len), val):set_hidden()
             offset = header.next_offset + len
 
         elseif header.field_number == 2 and header.wire_type == 2 then
@@ -1145,7 +1146,7 @@ function parse_join_game_failed_message(tvb, tree)
         if header.field_number == 1 and header.wire_type == 0 then
             local val, len = read_varint(tvb, header.next_offset)
             tree:add(f_join_failed_game_id, tvb(header.next_offset, len), val)
-            tree:add(f_game_id, tvb(header.next_offset, len), val)
+            tree:add(f_game_id, tvb(header.next_offset, len), val):set_hidden()
             offset = header.next_offset + len
 
         elseif header.field_number == 2 and header.wire_type == 0 then
@@ -1170,7 +1171,7 @@ function parse_game_list_admin_changed_message(tvb, tree)
         if header.field_number == 1 and header.wire_type == 0 then
             local val, len = read_varint(tvb, header.next_offset)
             tree:add(f_admin_changed_game_id, tvb(header.next_offset, len), val)
-            tree:add(f_game_id, tvb(header.next_offset, len), val)
+            tree:add(f_game_id, tvb(header.next_offset, len), val):set_hidden()
             offset = header.next_offset + len
 
         elseif header.field_number == 2 and header.wire_type == 0 then
@@ -1195,7 +1196,7 @@ function parse_game_list_update_message(tvb, tree)
         if header.field_number == 1 and header.wire_type == 0 then
             local val, len = read_varint(tvb, header.next_offset)
             tree:add(f_game_update_game_id, tvb(header.next_offset, len), val)
-            tree:add(f_game_id, tvb(header.next_offset, len), val)
+            tree:add(f_game_id, tvb(header.next_offset, len), val):set_hidden()
             offset = header.next_offset + len
 
         elseif header.field_number == 2 and header.wire_type == 0 then
@@ -1255,7 +1256,7 @@ local message_parsers = {
 function p_pokerth.dissector(tvb, pinfo, tree)
     pinfo.cols.protocol = "PokerTH"
 
-    local subtree = tree:add(p_pokerth, tvb(), "PokerTH Protocol")
+    --local subtree = tree:add(p_pokerth, tvb(), "PokerTH Protocol")
     local offset = 0
     local tvb_len = tvb:len()
 
@@ -1273,8 +1274,8 @@ function p_pokerth.dissector(tvb, pinfo, tree)
         end
 
         local msg_tvb = tvb(offset + 4, msg_len)
-        local msg_tree = subtree:add(p_pokerth, msg_tvb, "PokerTH Protobuf Message")
-        parse_pokerth_message(msg_tvb, msg_tree)
+        --local msg_tree = subtree:add(p_pokerth, msg_tvb, "PokerTH Protobuf Message")
+        parse_pokerth_message(msg_tvb, tree)
 
         offset = offset + total_len
     end
@@ -1307,7 +1308,8 @@ function parse_pokerth_message(tvb, tree)
 
     local header = read_protobuf_field_header(tvb, offset)
     
-    local msg_tree = tree:add(p_pokerth, tvb(start_offset), string.format("PokerTH MessageType %d field=%d wire=%d len=%d tag=%x len=%d", msg_type, header.field_number, header.wire_type, header.total_len, tag, header.length))
+    --local msg_tree = tree:add(p_pokerth, tvb(start_offset), string.format("PokerTH MessageType %d field=%d wire=%d len=%d tag=%x len=%d", msg_type, header.field_number, header.wire_type, header.total_len, tag, header.length))
+    local msg_tree = tree:add(p_pokerth, tvb(start_offset), string.format("PokerTH MessageType %d %s length=%d", msg_type, message_type_names[msg_type] or "Unknown", header.length))
 
     local parser = message_parsers[msg_type]
     if parser then
