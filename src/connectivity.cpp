@@ -125,12 +125,15 @@ sendMessage(tcp::socket &socket, boost::shared_ptr<NetPacket> packet)
 int
 main(int argc, char *argv[])
 {
-	try {
+	std::srand(static_cast<unsigned int>(std::time(nullptr))); // seed once per program run
+	cout << "Start main test" << endl;
+	//try {
 		// Check command line options.
 		po::options_description desc("Allowed options");
 		desc.add_options()
 		("help,h", "produce help message")
 		("server,s", po::value<string>(), "PokerTH server name")
+		("spasswd,S", po::value<string>(), "PokerTH Server Password")
 		("port,P", po::value<string>(), "PokerTH server port")
 		("mode,m", po::value<int>(), "set mode (0=connection test, 1=lag test)")
 		("username,u", po::value<string>(), "user name used for test")
@@ -145,7 +148,7 @@ main(int argc, char *argv[])
 			cout << desc << endl;
 			return 1;
 		}
-		if (!vm.count("server") || !vm.count("port") || !vm.count("mode") || !vm.count("username")) {
+		if (!vm.count("server") || !vm.count("port") || !vm.count("mode")) {
 			cout << "Missing option!" << endl << desc << endl;
 			return 1;
 		}
@@ -153,10 +156,17 @@ main(int argc, char *argv[])
 		string server = vm["server"].as<string>();
 		string port = vm["port"].as<string>();
 		int mode = vm["mode"].as<int>();
-		string username(vm["username"].as<string>());
+		string username;
+		if (vm.count("username")) {
+			username = vm["username"].as<string>();
+		}
 		string password;
 		if (vm.count("password")) {
 			password = vm["password"].as<string>();
+		}
+		string spasswd;
+		if (vm.count("spasswd")) {
+			spasswd = vm["spasswd"].as<string>();
 		}
 		// Initialise gsasl.
 		Gsasl *authContext;
@@ -204,11 +214,25 @@ main(int argc, char *argv[])
 		netInit->mutable_requestedversion()->set_majorversion(NET_VERSION_MAJOR);
 		netInit->mutable_requestedversion()->set_minorversion(NET_VERSION_MINOR);
 		netInit->set_buildid(0);
-		if (password.empty()) {
+		if (!spasswd.empty()) { // We have a Server Password
+			netInit->set_authserverpassword(spasswd);
+		}
+		if (username.empty()) {
+			int guestId = std::rand() % 99999 + 1; // gives a value from 1 to 99999
+			char guest[64];
+			std::snprintf(guest, sizeof(guest), "Guest%05d", guestId);
+			std::string username = guest;
 			netInit->set_login(InitMessage_LoginType_guestLogin);
 			netInit->set_nickname(username);
 			if (!sendMessage(socket, msg)) {
 				cout << "Init guest failed" << endl;
+				return 1;
+			}
+		} else if (password.empty()) {
+			netInit->set_login(InitMessage_LoginType_unauthenticatedLogin);
+			netInit->set_nickname(username);
+			if (!sendMessage(socket, msg)) {
+				cout << "Init as " << username << " failed" << endl;
 				return 1;
 			}
 		} else {
@@ -329,10 +353,10 @@ main(int argc, char *argv[])
 		}
 		perfTimer.restart();
 		gsasl_done(authContext);
-	} catch (...) {
-		cout << "Exception caught" << endl;
-		return 1;
-	}
+	//} catch (...) {
+	//	cout << "Exception caught" << endl;
+	//	return 1;
+	//}
 
 	return 0;
 }
