@@ -20,24 +20,24 @@ public:
     virtual void start() { do_read_header(); }
     virtual void handle_message(const std::vector<char>& data) = 0;
 
-    void send_message(const PokerTHMessage& msg) {
-        std::string serialized;
-        msg.SerializeToString(&serialized);
-        uint32_t len = htonl(static_cast<uint32_t>(serialized.size()));
-    
-        std::vector<boost::asio::const_buffer> buffers = {
-            boost::asio::buffer(&len, sizeof(len)),
-            boost::asio::buffer(serialized)
-        };
-    
-        boost::asio::async_write(socket_, buffers,
-            [](boost::system::error_code ec, std::size_t) {
-                if (ec) {
-                    std::cerr << "Send error: " << ec.message() << std::endl;
-                }
-            });
-    }
-    
+void send_message(const PokerTHMessage& msg) {
+    std::string serialized;
+    msg.SerializeToString(&serialized);
+    uint32_t len = htonl(static_cast<uint32_t>(serialized.size()));
+
+    std::vector<boost::asio::const_buffer> buffers = {
+        boost::asio::buffer(&len, sizeof(len)),
+        boost::asio::buffer(serialized)
+    };
+
+    boost::asio::async_write(socket_, buffers,
+        [](boost::system::error_code ec, std::size_t) {
+            if (ec) {
+                std::cerr << "Send error: " << ec.message() << std::endl;
+            }
+        });
+}
+
 protected:
     void do_read_header() {
         auto self(shared_from_this());
