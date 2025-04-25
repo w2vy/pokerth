@@ -25,19 +25,18 @@ public:
     void send_message(const PokerTHMessage& msg) {
         std::string serialized;
         msg.SerializeToString(&serialized);
-        uint32_t len = htonl(static_cast<uint32_t>(serialized.size()));
+        auto buffer = std::make_shared<std::vector<char>>();
+        buffer->resize(4 + serialized.size());
+        uint32_t len_net = htonl(static_cast<uint32_t>(serialized.size()));
+        memcpy(buffer->data(), &len_net, 4);
+        memcpy(buffer->data() + 4, serialized.data(), serialized.size());
 
-        std::vector<boost::asio::const_buffer> buffers = {
-            boost::asio::buffer(&len, sizeof(len)),
-            boost::asio::buffer(serialized)
-        };
-
-        boost::asio::async_write(socket_, buffers,
-            [](boost::system::error_code ec, std::size_t) {
+        boost::asio::async_write(socket_, boost::asio::buffer(*buffer),
+            [buffer](boost::system::error_code ec, std::size_t) {
                 if (ec) {
                     std::cerr << "Send error: " << ec.message() << std::endl;
                 }
-            });
+        });
     }
 
 protected:
@@ -50,7 +49,9 @@ protected:
         boost::asio::async_read(socket_, boost::asio::buffer(header_),
             [this, self](boost::system::error_code ec, std::size_t) {
                 if (!ec) {
-                    uint32_t msg_len = ntohl(*reinterpret_cast<uint32_t*>(header_.data()));
+                    uint32_t msg_len;
+                    memcpy(&msg_len, header_.data(), 4);
+                    msg_len = ntohl(msg_len);
                     if (msg_len <= 0 || msg_len > 10 * 1024 * 1024) {
                         std::cerr << "Invalid message length: " << msg_len << std::endl;
                         return;
