@@ -15,7 +15,7 @@ namespace po = boost::program_options;
 
 class PokerClient : public std::enable_shared_from_this<PokerClient> {
 public:
-    PokerClient(boost::asio::io_context& io) : socket_(io) {}
+    PokerClient(boost::asio::io_context& io) : io_context_(io), socket_(io) {}
     tcp::socket& socket() { return socket_; }
     virtual void start() { do_read_header(); }
     virtual void handle_message(const std::vector<char>& data) = 0;
@@ -39,7 +39,10 @@ void send_message(const PokerTHMessage& msg) {
 }
 
 protected:
-    void do_read_header() {
+boost::asio::io_context& io_context_; // Store reference
+tcp::socket socket_;
+
+void do_read_header() {
         auto self(shared_from_this());
         boost::asio::async_read(socket_, boost::asio::buffer(header_),
             [this, self](boost::system::error_code ec, std::size_t) {
@@ -67,19 +70,18 @@ protected:
     }
 
 private:
-    tcp::socket socket_;
     std::array<char, 4> header_;
     std::vector<char> body_;
 };
 
 class WatcherBot : public PokerClient {
-public:
-    using PokerClient::PokerClient;
-    void handle_message(const std::vector<char>& data) override {
-        // TODO: Parse message and track game state
-    }
-};
-
+    public:
+        using PokerClient::PokerClient;
+        void handle_message(const std::vector<char>& data) override {
+            // TODO: Parse message and track game state
+        }
+    };
+        
 class TournamentDirector : public PokerClient {
 public:
     TournamentDirector(boost::asio::io_context& io) : PokerClient(io), authCtx_(nullptr), authSession_(nullptr) {}
@@ -102,6 +104,44 @@ public:
         }
 
         switch (msg.messagetype()) {
+            case PokerTHMessage_PokerTHMessageType_Type_AnnounceMessage: {
+                const auto& ann = msg.announcemessage();
+            
+                const auto& protoVer = ann.protocolversion();
+                const auto& latestVer = ann.latestgameversion();
+                uint32_t betaRev = ann.latestbetarevision();
+                auto serverType = ann.servertype();
+                uint32_t numPlayers = ann.numplayersonserver();
+            
+                std::cout << "Received AnnounceMessage:\n"
+                        << "  Protocol Version: " << protoVer.majorversion() << "." << protoVer.minorversion() << "\n"
+                        << "  Latest Game Version: " << latestVer.majorversion() << "." << latestVer.minorversion() << "\n"
+                        << "  Latest Beta Revision: " << betaRev << "\n"
+                        << "  Server Type: " << serverType << "\n"
+                        << "  Number of Players on Server: " << numPlayers << std::endl;
+            
+                break;
+            }
+            case PokerTHMessage_PokerTHMessageType_Type_InitAckMessage: {
+                const auto& ack = msg.initackmessage();
+                std::cout << "Received InitAckMessage:\n"
+                          << "  Session ID: " << ack.yoursessionid() << "\n"
+                          << "  Player ID: " << ack.yourplayerid() << std::endl;
+                if (ack.has_youravatarhash()) {
+                    std::cout << "  Avatar Hash: " << ack.youravatarhash() << std::endl;
+                }
+                if (ack.has_rejoingameid()) {
+                    std::cout << "  Rejoin Game ID: " << ack.rejoingameid() << std::endl;
+                }
+                break;
+            }
+
+            case PokerTHMessage_PokerTHMessageType_Type_ErrorMessage: {
+                int cause = msg.errormessage().errorreason();
+                std::cerr << "Received error, reason " << cause << std::endl;
+                break;
+            }
+
             case PokerTHMessage_PokerTHMessageType_Type_AuthServerChallengeMessage: {
                 const auto& challenge = msg.authserverchallengemessage().serverchallenge();
 
@@ -133,16 +173,83 @@ public:
                 break;
             }
 
+            case PokerTHMessage_PokerTHMessageType_Type_JoinGameAckMessage: {
+                const JoinGameAckMessage ack = msg.joingameackmessage();
+                if (ack.has_gameid()) {
+                    if (ack.has_spectateonly()) {
+                        if (not ack.spectateonly()) {
+                            std::cout << "Joined game not as spectator! Terminate" << std::endl;
+                        } else {
+                            std::cout << "Watching a game " << std::endl;
+                        }
+                    }
+                }
+                break;
+            }
+
+            case PokerTHMessage_PokerTHMessageType_Type_JoinGameFailedMessage: {
+                const JoinGameFailedMessage failed = msg.joingamefailedmessage();
+                if (failed.has_gameid()) {
+                    uint32_t cause = failed.joingamefailurereason();
+                    //if (myGameId == failed.gameid()) {
+                        std::cout << "Join Game " << failed.gameid() << " " << cause << " Terminated" << std::endl;
+                        // Consider signaling termination, depending on your architecture
+                    //}
+                }
+                break;
+            }
+
+            case PokerTHMessage_PokerTHMessageType_Type_GameListNewMessage: {
+                std::cout << "Received GameListNewMessage" << std::endl;
+                const GameListNewMessage& newGame = msg.gamelistnewmessage();
+                int gameid = newGame.has_gameid() ? newGame.gameid() : 0;
+                std::string gname = newGame.gameinfo().gamename();
+                std::cout << "Game " << gname << " (" << gameid << ") just started!" << std::endl;
+            
+                // if (state == 1 && watch == gname) {
+                //     state++;
+                //     myGameId = gameid;
+                //     std::cout << "Found Game " << gname << std::endl;
+            
+                //     PokerTHMessage joinMsg;
+                //     joinMsg.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_JoinExistingGameMessage);
+                //     JoinExistingGameMessage* joinGame = joinMsg.mutable_joinexistinggamemessage();
+                //     joinGame->set_gameid(myGameId);
+                //     joinGame->set_spectateonly(true);
+            
+                //     if (!sendMessage(socket, joinMsg)) {
+                //         std::cout << "Create game failed" << std::endl;
+                //         // Consider signaling failure appropriately
+                //     }
+                // }
+                break;
+            }
+
+            case PokerTHMessage_PokerTHMessageType_Type_EndOfGameMessage: {
+                std::cout << "Received EndOfGameMessage" << std::endl;
+                const auto& endGame = msg.endofgamemessage();
+                if (endGame.has_gameid()) {
+                    std::cout << "Game " << endGame.gameid() << " has ended" << std::endl;
+                } else {
+                    std::cout << "A Game has ended" << std::endl;
+                }
+                // if (endGame.has_gameid() && state == 2 && myGameId == endGame.gameid()) {
+                //     std::cout << "Game " << watch << " has ended" << std::endl;
+                //     // You may want to trigger cleanup or transition here
+                // }
+                break;
+            }
+                        
+            case PokerTHMessage_PokerTHMessageType_Type_ChatMessage:
+                std::cout << "Exiting TD" << std::endl;
+                io_context_.stop();
+                break;
+
             default:
                 std::cerr << "Unhandled message type: " << msg.messagetype() << std::endl;
                 break;
         }
     }
-
-    void create_game_with_watchers() {
-        // TODO: Send CreateGameMessage, instantiate WatcherBot
-    }
-
 private:
     std::unordered_map<int, std::shared_ptr<WatcherBot>> watchers_;
     Gsasl* authCtx_;
@@ -150,9 +257,9 @@ private:
 };
 
 void async_connect_and_auth(std::shared_ptr<PokerClient> client,
-                             const std::string& username,
-                             const std::string& password,
-                             const std::string& server_password) {
+    const std::string& username,
+    const std::string& password,
+    const std::string& server_password) {
     Gsasl* ctx = nullptr;
     Gsasl_session* session = nullptr;
 
@@ -174,6 +281,7 @@ void async_connect_and_auth(std::shared_ptr<PokerClient> client,
     }
 
     if (username.empty()) {
+        std::cout << "Login as Guest" << std::endl;
         int guestId = std::rand() % 99999 + 1;
         char guest[64];
         std::snprintf(guest, sizeof(guest), "Guest%05d", guestId);
@@ -181,10 +289,12 @@ void async_connect_and_auth(std::shared_ptr<PokerClient> client,
         init->set_nickname(guest);
         client->send_message(msg);
     } else if (password.empty()) {
+        std::cout << "Login Unauthenticated" << std::endl;
         init->set_login(InitMessage::unauthenticatedLogin);
         init->set_nickname(username);
         client->send_message(msg);
     } else {
+        std::cout << "Login full auth!" << std::endl;
         if (gsasl_client_start(ctx, "SCRAM-SHA-1", &session) != GSASL_OK) {
             std::cerr << "GSASL client_start failed" << std::endl;
             gsasl_done(ctx);
