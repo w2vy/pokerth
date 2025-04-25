@@ -94,7 +94,7 @@ public:
      
 class TournamentDirector : public PokerClient {
 public:
-    TournamentDirector(boost::asio::io_context& io) : PokerClient(io), authCtx_(nullptr), authSession_(nullptr) {}
+    TournamentDirector(boost::asio::io_context& io, const boost::program_options::variables_map& vm) : PokerClient(io, vm), authCtx_(nullptr), authSession_(nullptr) {}
 
     ~TournamentDirector() {
         if (authSession_) gsasl_finish(authSession_);
@@ -153,7 +153,7 @@ public:
             }
 
             case PokerTHMessage_PokerTHMessageType_Type_AuthServerChallengeMessage: {
-                const auto& challenge = msg.authserverchallengemessage().serverchallenge();
+                const std::string& challenge = msg.authserverchallengemessage().serverchallenge();
 
                 char* tmpOut;
                 size_t tmpOutSize;
@@ -234,10 +234,8 @@ public:
                 // }
                 break;
             }
-
             case PokerTHMessage_PokerTHMessageType_Type_EndOfGameMessage: {
-                std::cout << "Received EndOfGameMessage" << std::endl;
-                const auto& endGame = msg.endofgamemessage();
+                const EndOfGameMessage endGame = msg.endofgamemessage();
                 if (endGame.has_gameid()) {
                     std::cout << "Game " << endGame.gameid() << " has ended" << std::endl;
                 } else {
@@ -392,7 +390,7 @@ int main(int argc, char* argv[]) {
 
     if (!is_td) {
         std::cout << "Launching Watcher Bot for game ID: " << game_id << std::endl;
-        auto watcher = std::make_shared<WatcherBot>(io);
+        auto watcher = std::make_shared<WatcherBot>(io, vm);
         tcp::resolver resolver(io);
         auto endpoints = resolver.resolve(host, std::to_string(port));
         boost::asio::async_connect(watcher->socket(), endpoints,
@@ -406,7 +404,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    auto td = std::make_shared<TournamentDirector>(io);
+    auto td = std::make_shared<TournamentDirector>(io, vm);
     tcp::resolver resolver(io);
     auto endpoints = resolver.resolve(host, std::to_string(port));
 
