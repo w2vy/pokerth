@@ -15,39 +15,46 @@ namespace po = boost::program_options;
 
 class PokerClient : public std::enable_shared_from_this<PokerClient> {
 public:
-    PokerClient(boost::asio::io_context& io) : io_context_(io), socket_(io) {}
+    PokerClient(boost::asio::io_context& io, const po::variables_map& vm)
+        : io_context_(io), socket_(io), vm_(vm) {}
+
     tcp::socket& socket() { return socket_; }
     virtual void start() { do_read_header(); }
     virtual void handle_message(const std::vector<char>& data) = 0;
 
-void send_message(const PokerTHMessage& msg) {
-    std::string serialized;
-    msg.SerializeToString(&serialized);
-    uint32_t len = htonl(static_cast<uint32_t>(serialized.size()));
+    void send_message(const PokerTHMessage& msg) {
+        std::string serialized;
+        msg.SerializeToString(&serialized);
+        uint32_t len = htonl(static_cast<uint32_t>(serialized.size()));
 
-    std::vector<boost::asio::const_buffer> buffers = {
-        boost::asio::buffer(&len, sizeof(len)),
-        boost::asio::buffer(serialized)
-    };
+        std::vector<boost::asio::const_buffer> buffers = {
+            boost::asio::buffer(&len, sizeof(len)),
+            boost::asio::buffer(serialized)
+        };
 
-    boost::asio::async_write(socket_, buffers,
-        [](boost::system::error_code ec, std::size_t) {
-            if (ec) {
-                std::cerr << "Send error: " << ec.message() << std::endl;
-            }
-        });
-}
+        boost::asio::async_write(socket_, buffers,
+            [](boost::system::error_code ec, std::size_t) {
+                if (ec) {
+                    std::cerr << "Send error: " << ec.message() << std::endl;
+                }
+            });
+    }
 
 protected:
-boost::asio::io_context& io_context_; // Store reference
-tcp::socket socket_;
+    boost::asio::io_context& io_context_; // Store reference
+    tcp::socket socket_;
+    const po::variables_map& vm_;
 
-void do_read_header() {
+    void do_read_header() {
         auto self(shared_from_this());
         boost::asio::async_read(socket_, boost::asio::buffer(header_),
             [this, self](boost::system::error_code ec, std::size_t) {
                 if (!ec) {
                     uint32_t msg_len = ntohl(*reinterpret_cast<uint32_t*>(header_.data()));
+                    if (msg_len <= 0 || msg_len > 10 * 1024 * 1024) {
+                        std::cerr << "Invalid message length: " << msg_len << std::endl;
+                        return;
+                    }
                     body_.resize(msg_len);
                     do_read_body();
                 } else {
@@ -59,12 +66,13 @@ void do_read_header() {
     void do_read_body() {
         auto self(shared_from_this());
         boost::asio::async_read(socket_, boost::asio::buffer(body_),
-            [this, self](boost::system::error_code ec, std::size_t) {
-                if (!ec) {
+            [this, self](boost::system::error_code ec, std::size_t bytes_transferred) {
+                if (!ec && bytes_transferred == body_.size()) {
                     handle_message(body_);
                     do_read_header();
                 } else {
-                    std::cerr << "Body read error: " << ec.message() << std::endl;
+                    std::cerr << "Body read error or incomplete: " << ec.message()
+                              << ", bytes: " << bytes_transferred << " expected: " << body_.size() << std::endl;
                 }
             });
     }
@@ -75,13 +83,14 @@ private:
 };
 
 class WatcherBot : public PokerClient {
-    public:
-        using PokerClient::PokerClient;
-        void handle_message(const std::vector<char>& data) override {
-            // TODO: Parse message and track game state
-        }
-    };
-        
+public:
+    WatcherBot(boost::asio::io_context& io, const po::variables_map& vm) : PokerClient(io, vm) {}
+    void handle_message(const std::vector<char>& data) override {
+        std::cout << "WatcherBot received message of size: " << data.size() << std::endl;
+        // TODO: Parse message and track game state
+    }
+};
+     
 class TournamentDirector : public PokerClient {
 public:
     TournamentDirector(boost::asio::io_context& io) : PokerClient(io), authCtx_(nullptr), authSession_(nullptr) {}
@@ -250,6 +259,28 @@ public:
                 break;
         }
     }
+
+    void create_and_run_watcher_bot(const std::string& game_name, const std::string& username,
+                                    const std::string& password, const std::string& server_password,
+                                    const std::string& host, int port,
+                                    boost::asio::io_context& io, const po::variables_map& vm) {
+        auto bot = std::make_shared<WatcherBot>(io, vm);
+
+        tcp::resolver resolver(io);
+        auto endpoints = resolver.resolve(host, std::to_string(port));
+
+        boost::asio::async_connect(bot->socket(), endpoints,
+            [&io, bot, username, password, server_password](boost::system::error_code ec, const tcp::endpoint&) {
+                if (!ec) {
+                    std::cout << "WatcherBot connected successfully." << std::endl;
+                    // TODO: Add authentication, game creation, and game joining
+                    bot->start();
+                } else {
+                    std::cerr << "WatcherBot connection failed: " << ec.message() << std::endl;
+                }
+            });
+    }
+
 private:
     std::unordered_map<int, std::shared_ptr<WatcherBot>> watchers_;
     Gsasl* authCtx_;
@@ -257,9 +288,9 @@ private:
 };
 
 void async_connect_and_auth(std::shared_ptr<PokerClient> client,
-    const std::string& username,
-    const std::string& password,
-    const std::string& server_password) {
+                            const std::string& username,
+                            const std::string& password,
+                            const std::string& server_password) {
     Gsasl* ctx = nullptr;
     Gsasl_session* session = nullptr;
 
