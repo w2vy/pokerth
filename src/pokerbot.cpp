@@ -139,16 +139,45 @@ public:
     void setPlayerName(uint32_t player_id, std::string name) {
         auto it = players.find(player_id);
         if (it == players.end()) {
-            players[player_id] = { name, 0, 0};
+            players[player_id] = { name, 0, 0, 0};
         } else {
             players[player_id].name = name;
         }
     }
 
-    void setPlayerStack(uint32_t player_id, int stack) {
+    // The Pokerth messages give stack remaining, so we can compute
+    // the committed chips StartingChips - stack (available from the message)
+    void setPlayerStack(uint32_t player_id, int stackLeft) {
         auto it = players.find(player_id);
         if (it != players.end()) {
-            players[player_id].stack = stack;
+            int stack = players[player_id].startingStack - stackLeft;
+            if (stack < 0) stack =  players[player_id].startingStack;
+            players[player_id].committed = stack;
+        }
+    }
+
+    // At the End of Hand the winners will be given their winnings (committed wil be 0)
+
+    void setPlayerStackWon(uint32_t player_id, int winnings) {
+        auto it = players.find(player_id);
+        if (it != players.end()) {
+            int stack = players[player_id].startingStack - players[player_id].committed + winnings;
+            if (stack < 0) stack = 0;
+            players[player_id].startingStack = stack;
+            players[player_id].committed = 0;
+        }
+    }
+
+    // At the start of the hand reset startingStack by reducing the stack by committed
+    void setPlayersStartingStack(void) {
+        for (auto it = players.begin(); it != players.end(); ++it) {
+            const int player_id   = it->first;
+            if (players[player_id].committed > 0) {
+                int stack = players[player_id].startingStack - players[player_id].committed;
+                if (stack < 0) stack = 0;
+                players[player_id].startingStack = stack;
+                players[player_id].committed = 0;
+            }
         }
     }
 
@@ -318,6 +347,7 @@ public:
                             std::cout << " " << getNetPlayerState(start.seatstates()[i]);
                         }
                         std::cout << std::endl;
+                        setPlayersStartingStack();
                     }
                 }
                 break;
@@ -326,7 +356,7 @@ public:
                 EndOfHandHideCardsMessage end = msg.endofhandhidecardsmessage();
                 if (end.has_gameid() && end.gameid() == game_id && end.has_playerid() && end.has_playermoney()) {
                     std::cout << "End of Hand Hide: Player: " << getPlayerName(end.playerid()) << " Won " << end.moneywon() << " Total " << end.playermoney() << std::endl;
-                    setPlayerStack(end.playerid(), end.playermoney());
+                    setPlayerStackWon(end.playerid(), end.moneywon());
                 }
                 break;
             }
@@ -337,6 +367,7 @@ public:
                     for (int i=0;i<show.playerresults_size();i++) {
                         PlayerResult res = show.playerresults()[i];
                         std::cout << "Player " << getPlayerName(res.playerid()) << " Won " << res.moneywon() << " Total " << res.playermoney() << std::endl;
+                        setPlayerStackWon(res.playerid(), res.moneywon());
                     }
                 }
                 break;
@@ -373,7 +404,8 @@ private:
     std::uint32_t game_id = 0;
     struct Player {
         std::string name;
-        int stack;
+        int startingStack;    // Money at the start of the hand
+        int committed;        // What they have bet in this hand
         int hand;
     };
     std::unordered_map<int, Player> players;
