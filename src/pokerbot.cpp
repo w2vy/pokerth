@@ -129,64 +129,65 @@ public:
     }
 
     std::string getPlayerName(uint32_t player_id) {
-        auto it = players.find(player_id);
-        if (it != players.end()) {
-            return players[player_id].name;
+        auto it = Players.find(player_id);
+        if (it != Players.end()) {
+            return Players[player_id].name;
         }
         return "Player " + std::to_string(player_id);
     }
 
     void setPlayerName(uint32_t player_id, std::string name) {
-        auto it = players.find(player_id);
-        if (it == players.end()) {
-            players[player_id] = { name, 0, 0, 0};
+        auto it = Players.find(player_id);
+        if (it == Players.end()) {
+            Players[player_id] = { player_id, name, start_money, 0, 0, 0 };
         } else {
-            players[player_id].name = name;
+            Players[player_id].name = name;
         }
     }
 
     // The Pokerth messages give stack remaining, so we can compute
     // the committed chips StartingChips - stack (available from the message)
     void setPlayerStack(uint32_t player_id, int stackLeft) {
-        auto it = players.find(player_id);
-        if (it != players.end()) {
-            int stack = players[player_id].startingStack - stackLeft;
-            if (stack < 0) stack =  players[player_id].startingStack;
-            players[player_id].committed = stack;
+        auto it = Players.find(player_id);
+        if (it != Players.end()) {
+            int stack = Players[player_id].startingStack - stackLeft;
+            if (stack < 0) stack =  Players[player_id].startingStack;
+            Players[player_id].committed = stack;
         }
     }
 
     // At the End of Hand the winners will be given their winnings (committed wil be 0)
 
     void setPlayerStackWon(uint32_t player_id, int winnings) {
-        auto it = players.find(player_id);
-        if (it != players.end()) {
-            int stack = players[player_id].startingStack - players[player_id].committed + winnings;
-            if (stack < 0) stack = 0;
-            players[player_id].startingStack = stack;
-            players[player_id].committed = 0;
+        auto it = Players.find(player_id);
+        if (it != Players.end()) {
+            Players[player_id].winnings = winnings;
         }
     }
 
     // At the start of the hand reset startingStack by reducing the stack by committed
     void setPlayersStartingStack(void) {
-        for (auto it = players.begin(); it != players.end(); ++it) {
+        for (auto it = Players.begin(); it != Players.end(); ++it) {
             const int player_id   = it->first;
-            if (players[player_id].committed > 0) {
-                int stack = players[player_id].startingStack - players[player_id].committed;
+            if (Players[player_id].committed > 0) {
+                int stack = Players[player_id].startingStack - Players[player_id].committed + Players[player_id].winnings;
                 if (stack < 0) stack = 0;
-                players[player_id].startingStack = stack;
-                players[player_id].committed = 0;
+                Players[player_id].startingStack = stack;
+                Players[player_id].committed = 0;
+                Players[player_id].winnings = 0;
             }
+            Players[player_id].hand = 0;
+            std::cout << getPlayerName(player_id) << " Stack " << Players[player_id].startingStack << std::endl;
         }
     }
 
     void setPlayerHand(uint32_t player_id, int hand) {
-        auto it = players.find(player_id);
-        if (it != players.end()) {
-            players[player_id].hand = hand;
+        auto it = Players.find(player_id);
+        if (it != Players.end()) {
+            Players[player_id].hand = hand;
         }
     }
+
     void handle_message(const std::vector<char>& data) override {
         PokerTHMessage msg;
         if (!msg.ParseFromArray(data.data(), data.size())) {
@@ -205,7 +206,7 @@ public:
                 if (game_id == 0 && gname == game_name) {
                     std::cout << "Found My Game " << gname << std::endl;
                     game_id = gameid;
-            
+
                     PokerTHMessage joinMsg;
                     joinMsg.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_JoinExistingGameMessage);
                     JoinExistingGameMessage* joinGame = joinMsg.mutable_joinexistinggamemessage();
@@ -224,7 +225,7 @@ public:
                         if (ack.spectateonly()) {
                             std::cout << "Joined game " << game_name << " (" << game_id << ") as spectator!" << std::endl;
                             if (ack.has_gameinfo()) {
-                                start_money = ack.gameinfo().has_startmoney();
+                                start_money = ack.gameinfo().startmoney();
                             }
                         } else {
                             std::cout << "Joined game " << game_name << " (" << game_id << ") NOT as spectator!" << std::endl;
@@ -252,7 +253,6 @@ public:
                     PokerTHMessage chat;
                     chat.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_ChatRequestMessage);
                     ChatRequestMessage* ChatReq = chat.mutable_chatrequestmessage();
-                    ChatReq->set_targetgameid(game_id);
                     ChatReq->set_chattext(message);
                     send_message(chat);
                 }
@@ -283,7 +283,7 @@ public:
                 const GameListPlayerJoinedMessage joined = msg.gamelistplayerjoinedmessage();
                 if (joined.gameid() == game_id) {
                     uint32_t player = joined.playerid();
-                    if (players.find(player) == players.end()) {
+                    if (Players.find(player) == Players.end()) {
                         PokerTHMessage info;
                         info.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_PlayerInfoRequestMessage);
                         info.mutable_playerinforequestmessage()->add_playerid(player);
@@ -314,14 +314,23 @@ public:
                     if (endGame.has_winnerplayerid()) {
                         std::cout << "The winner is: " << getPlayerName(endGame.winnerplayerid()) << std::endl;
                     }
-                    // You may want to trigger cleanup or transition here
+
+                    auto [first, second] = find_winners();
+                    std::string shout = "Congratulations to the winner of " + game_name + ": " + first->name + " and Runner Up " + second->name;
+                    std::cout << shout << std::endl;
+                    PokerTHMessage chat;
+                    chat.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_ChatRequestMessage);
+                    ChatRequestMessage* ChatReq = chat.mutable_chatrequestmessage();
+                    ChatReq->set_chattext(shout);
+                    send_message(chat);
+                    // Set results so TD can see who advances
                 }
                 break;
             }
             case PokerTHMessage_PokerTHMessageType_Type_PlayersActionDoneMessage: {
                 const PlayersActionDoneMessage done = msg.playersactiondonemessage();
                 if (done.has_gameid() && done.gameid() == game_id && done.has_playerid() && done.has_playermoney()) {
-                    std::cout << "Players Action Done: Player " << getPlayerName(done.playerid()) << " Bet " << done.totalplayerbet() << " Money " << done.playermoney() << std::endl;
+                    //std::cout << "Players Action Done: Player " << getPlayerName(done.playerid()) << " Bet " << done.totalplayerbet() << " Money " << done.playermoney() << std::endl;
                     setPlayerStack(done.playerid(), done.playermoney());
                 }
                 break;
@@ -330,7 +339,7 @@ public:
             case PokerTHMessage_PokerTHMessageType_Type_PlayersTurnMessage: {
                 const PlayersTurnMessage turn = msg.playersturnmessage();
                 if (turn.gameid() == game_id) {
-                    std::cout << "Players Turn: Player: " << getPlayerName(turn.playerid()) << " " << getNetGameState(turn.gamestate()) << std::endl;
+                    //std::cout << "Players Turn: Player: " << getPlayerName(turn.playerid()) << " " << getNetGameState(turn.gamestate()) << std::endl;
                 }
                 break;
             }
@@ -366,9 +375,23 @@ public:
                     std::cout << "End of Hand Show Cards" << std::endl;
                     for (int i=0;i<show.playerresults_size();i++) {
                         PlayerResult res = show.playerresults()[i];
-                        std::cout << "Player " << getPlayerName(res.playerid()) << " Won " << res.moneywon() << " Total " << res.playermoney() << std::endl;
+                        std::string hand = "";
+                        if (res.has_cardsvalue()) {
+                            hand = " Hand Strength: " + std::to_string(res.cardsvalue());
+                            setPlayerHand(res.playerid(), res.cardsvalue());
+                        }
+                        std::cout << "Player " << getPlayerName(res.playerid()) << " Won " << res.moneywon() << " Total " << res.playermoney() << hand << std::endl;
                         setPlayerStackWon(res.playerid(), res.moneywon());
                     }
+                }
+                break;
+            }
+            case PokerTHMessage_PokerTHMessageType_Type_AfterHandShowCardsMessage: {
+                AfterHandShowCardsMessage show = msg.afterhandshowcardsmessage();
+                PlayerResult res = show.playerresult();
+                if (res.has_cardsvalue()) {
+                    setPlayerHand(res.playerid(), res.cardsvalue());
+                    std::cout << "Player " << getPlayerName(res.playerid()) << " Hand Strength: " + std::to_string(res.cardsvalue()) << std::endl;
                 }
                 break;
             }
@@ -380,9 +403,18 @@ public:
             }
             case PokerTHMessage_PokerTHMessageType_Type_ChatMessage: {
                 ChatMessage chat = msg.chatmessage();
+                std::cout << "Received Chat: " << chat.chattext() << std::endl;
                 if (chat.chattext() == "exit") {
                     std::cout << "Exiting TD" << std::endl;
                     io_context_.stop();
+                }
+                if (chat.chattext() == "ping") {
+                    std::string msg = "Ping Pong " + std::to_string(8) + " times";
+                    PokerTHMessage chat;
+                    chat.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_ChatRequestMessage);
+                    ChatRequestMessage* ChatReq = chat.mutable_chatrequestmessage();
+                    ChatReq->set_chattext(msg);
+                    send_message(chat);
                 }
                 break;
             }
@@ -403,13 +435,118 @@ private:
     std::string game_name;
     std::uint32_t game_id = 0;
     struct Player {
+        uint32_t player_id;
         std::string name;
         int startingStack;    // Money at the start of the hand
         int committed;        // What they have bet in this hand
+        int winnings;         // what money they won
         int hand;
     };
-    std::unordered_map<int, Player> players;
-    std::uint32_t start_money;
+    std::unordered_map<int, Player> Players;
+    std::int32_t start_money;
+
+    struct Pot {
+        int amount;
+        std::vector<Player*> eligible_players;
+    };
+    
+    // ------------------ Functions ------------------
+    
+    // Returns the player with the best hand in the group
+    Player* GetBestPlayer(const std::vector<Player*>& players) {
+        return *std::max_element(players.begin(), players.end(),
+            [](Player* a, Player* b) {
+                return a->hand < b->hand;
+            });
+    }
+    
+    std::vector<Pot> BuildPotsFromCommits(std::vector<Player*>& player_list) {
+        // 1) filter out any players who folded (committed == 0)
+        std::vector<Player*> inHand;
+        for (auto *p : player_list) {
+            if (p->committed > 0) inHand.push_back(p);
+        }
+    
+        // 2) sort ascending by committed amount
+        std::sort(inHand.begin(), inHand.end(),
+                  [](Player* a, Player* b) { return a->committed < b->committed; });
+    
+        std::vector<Pot> pots;
+        int prevLevel = 0;
+    
+        while (!inHand.empty()) {
+            int level = inHand.front()->committed;
+            int delta = level - prevLevel;
+    
+            Pot pot;
+            pot.amount = delta * static_cast<int>(inHand.size());
+            pot.eligible_players = inHand;
+            pots.push_back(pot);
+    
+            // remove those who only committed up to this level
+            inHand.erase(
+                std::remove_if(inHand.begin(), inHand.end(),
+                               [level](Player* p){ return p->committed == level; }),
+                inHand.end()
+            );
+    
+            prevLevel = level;
+        }
+    
+        return pots;
+    }
+    
+    // Determines first and second place
+    std::pair<Player*, Player*> DetermineTopTwoPlayers(std::vector<Player*>& players,
+                                                       std::vector<Pot>& pots)
+    {
+        if (players.size() == 2) {
+            Player* first = GetBestPlayer(players);
+            Player* second = (first == players[0]) ? players[1] : players[0];
+            return {first, second};
+        }
+    
+        std::sort(pots.begin(), pots.end(), [](const Pot& a, const Pot& b) {
+            return a.amount > b.amount;
+        });
+    
+        Player* first = GetBestPlayer(pots[0].eligible_players);
+    
+        for (size_t i = 1; i < pots.size(); ++i) {
+            if (std::find(pots[i].eligible_players.begin(), pots[i].eligible_players.end(), first)
+                == pots[i].eligible_players.end()) {
+                Player* second = GetBestPlayer(pots[i].eligible_players);
+                return {first, second};
+            }
+        }
+    
+        std::vector<Player*> remaining;
+        for (Player* p : players) {
+            if (p != first) remaining.push_back(p);
+        }
+    
+        Player* second = GetBestPlayer(remaining);
+        return {first, second};
+    }
+
+    std::pair<Player*, Player*> find_winners(void) {
+        std::vector<Player*> players_list;
+        players_list.reserve(Players.size());   // avoid reallocations
+
+        for (auto& [id, player] : Players) {
+            players_list.push_back(&player);
+        }
+
+        // 1) build pots from their committed amounts
+        auto pots = BuildPotsFromCommits(players_list);
+
+        // 2) determine 1st & 2nd
+        auto [first, second] = DetermineTopTwoPlayers(players_list, pots);
+
+        std::cout << "1st: "  << first->name << "\n"
+                << "2nd: "  << second->name << "\n";
+        return {first, second};
+    }
 };
 
 class TournamentDirector : public PokerClient {
