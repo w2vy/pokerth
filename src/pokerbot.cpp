@@ -22,6 +22,85 @@ public:
     virtual void start() { do_read_header(); }
     virtual void handle_message(const std::vector<char>& data) = 0;
 
+    ~PokerClient() {
+        clear_auth_context();
+    }
+
+    void clear_auth_context() {
+        if (authSession_) gsasl_finish(authSession_);
+        if (authCtx_) gsasl_done(authCtx_);
+    }
+
+    void set_auth_context(Gsasl* ctx, Gsasl_session* session) {
+        authCtx_ = ctx;
+        authSession_ = session;
+    }
+
+    void server_auth(const std::string& username, const std::string& password,
+                     const std::string& server_password) {
+        Gsasl* ctx = nullptr;
+        Gsasl_session* session = nullptr;
+
+        if (gsasl_init(&ctx) != GSASL_OK ||
+            !gsasl_client_support_p(ctx, "SCRAM-SHA-1")) {
+            std::cerr << "GSASL SCRAM-SHA-1 unsupported or init failed" << std::endl;
+            return;
+        }
+
+        PokerTHMessage msg;
+        msg.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_InitMessage);
+        InitMessage* init = msg.mutable_initmessage();
+        init->mutable_requestedversion()->set_majorversion(NET_VERSION_MAJOR);
+        init->mutable_requestedversion()->set_minorversion(NET_VERSION_MINOR);
+        init->set_buildid(0);
+
+        if (!server_password.empty()) {
+            init->set_authserverpassword(server_password);
+        }
+
+        if (username.empty()) {
+            std::cout << "Login as Guest" << std::endl;
+            int guestId = std::rand() % 99999 + 1;
+            char guest[64];
+            std::snprintf(guest, sizeof(guest), "Guest%05d", guestId);
+            init->set_login(InitMessage::guestLogin);
+            init->set_nickname(guest);
+            send_message(msg);
+        } else if (password.empty()) {
+            std::cout << "Login Unauthenticated" << std::endl;
+            init->set_login(InitMessage::unauthenticatedLogin);
+            init->set_nickname(username);
+            send_message(msg);
+        } else {
+            std::cout << "Login full auth!" << std::endl;
+            if (gsasl_client_start(ctx, "SCRAM-SHA-1", &session) != GSASL_OK) {
+                std::cerr << "GSASL client_start failed" << std::endl;
+                gsasl_done(ctx);
+                return;
+            }
+            gsasl_property_set(session, GSASL_AUTHID, username.c_str());
+            gsasl_property_set(session, GSASL_PASSWORD, password.c_str());
+
+            init->set_login(InitMessage::authenticatedLogin);
+
+            char* tmpOut;
+            size_t tmpOutSize;
+            std::string nextGsaslMsg;
+
+            if (gsasl_step(session, NULL, 0, &tmpOut, &tmpOutSize) == GSASL_NEEDS_MORE) {
+                nextGsaslMsg.assign(tmpOut, tmpOutSize);
+                gsasl_free(tmpOut);
+                init->set_clientuserdata(nextGsaslMsg);
+                send_message(msg);
+                set_auth_context(ctx, session);
+            } else {
+                std::cerr << "GSASL step failed" << std::endl;
+                gsasl_finish(session);
+                gsasl_done(ctx);
+            }
+        }
+    }
+
     void send_message(const PokerTHMessage& msg) {
         std::string serialized;
         msg.SerializeToString(&serialized);
@@ -43,6 +122,8 @@ protected:
     boost::asio::io_context& io_context_; // Store reference
     tcp::socket socket_;
     const po::variables_map& vm_;
+    Gsasl* authCtx_;
+    Gsasl_session* authSession_;
 
     void do_read_header() {
         auto self(shared_from_this());
@@ -196,6 +277,70 @@ public:
         }
 
         switch (msg.messagetype()) {
+            case PokerTHMessage_PokerTHMessageType_Type_AnnounceMessage: {
+                const auto& ann = msg.announcemessage();
+            
+                const auto& protoVer = ann.protocolversion();
+                const auto& latestVer = ann.latestgameversion();
+                uint32_t betaRev = ann.latestbetarevision();
+                auto serverType = ann.servertype();
+                uint32_t numPlayers = ann.numplayersonserver();
+            
+                std::cout << "Received AnnounceMessage:\n"
+                        << "  Protocol Version: " << protoVer.majorversion() << "." << protoVer.minorversion() << "\n"
+                        << "  Latest Game Version: " << latestVer.majorversion() << "." << latestVer.minorversion() << "\n"
+                        << "  Latest Beta Revision: " << betaRev << "\n"
+                        << "  Server Type: " << serverType << "\n"
+                        << "  Number of Players on Server: " << numPlayers << std::endl;
+
+                const std::string& password = vm_["watcher-password"].as<std::string>();
+                const std::string& server_password = vm_["server-password"].as<std::string>();
+                            
+                server_auth("WatcherBot", password, server_password);
+                break;
+            }
+            case PokerTHMessage_PokerTHMessageType_Type_InitAckMessage: {
+                const auto& ack = msg.initackmessage();
+                std::cout << "Received InitAckMessage:\n"
+                          << "  Session ID: " << ack.yoursessionid() << "\n"
+                          << "  Player ID: " << ack.yourplayerid() << std::endl;
+                if (ack.has_youravatarhash()) {
+                    std::cout << "  Avatar Hash: " << ack.youravatarhash() << std::endl;
+                }
+                if (ack.has_rejoingameid()) {
+                    std::cout << "  Rejoin Game ID: " << ack.rejoingameid() << std::endl;
+                }
+                break;
+            }
+            case PokerTHMessage_PokerTHMessageType_Type_AuthServerChallengeMessage: {
+                const std::string& challenge = msg.authserverchallengemessage().serverchallenge();
+
+                char* tmpOut;
+                size_t tmpOutSize;
+                std::string response;
+
+                if (gsasl_step(authSession_, challenge.c_str(), challenge.size(), &tmpOut, &tmpOutSize) == GSASL_NEEDS_MORE) {
+                    response.assign(tmpOut, tmpOutSize);
+                    gsasl_free(tmpOut);
+
+                    PokerTHMessage reply;
+                    reply.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_AuthClientResponseMessage);
+                    reply.mutable_authclientresponsemessage()->set_clientresponse(response);
+
+                    send_message(reply);
+                } else {
+                    std::cerr << "GSASL step 2 failed" << std::endl;
+                }
+                break;
+            }
+
+            case PokerTHMessage_PokerTHMessageType_Type_AuthServerVerificationMessage: {
+                std::cout << "Authentication complete!" << std::endl;
+                gsasl_finish(authSession_);
+                gsasl_done(authCtx_);
+                clear_auth_context();
+                break;
+            }
             case PokerTHMessage_PokerTHMessageType_Type_GameListNewMessage: {
                 std::cout << "Received GameListNewMessage" << std::endl;
                 const GameListNewMessage& newGame = msg.gamelistnewmessage();
@@ -551,17 +696,7 @@ private:
 
 class TournamentDirector : public PokerClient {
 public:
-    TournamentDirector(boost::asio::io_context& io, const boost::program_options::variables_map& vm) : PokerClient(io, vm), authCtx_(nullptr), authSession_(nullptr) {}
-
-    ~TournamentDirector() {
-        if (authSession_) gsasl_finish(authSession_);
-        if (authCtx_) gsasl_done(authCtx_);
-    }
-
-    void set_auth_context(Gsasl* ctx, Gsasl_session* session) {
-        authCtx_ = ctx;
-        authSession_ = session;
-    }
+    TournamentDirector(boost::asio::io_context& io, const boost::program_options::variables_map& vm) : PokerClient(io, vm) {}
 
     void handle_message(const std::vector<char>& data) override {
         PokerTHMessage msg;
@@ -587,6 +722,11 @@ public:
                         << "  Server Type: " << serverType << "\n"
                         << "  Number of Players on Server: " << numPlayers << std::endl;
             
+                const std::string& username = vm_["username"].as<std::string>();
+                const std::string& password = vm_["watcher-password"].as<std::string>();
+                const std::string& server_password = vm_["server-password"].as<std::string>();
+                            
+                server_auth(username, password, server_password);
                 break;
             }
             case PokerTHMessage_PokerTHMessageType_Type_InitAckMessage: {
@@ -635,8 +775,7 @@ public:
                 std::cout << "Authentication complete!" << std::endl;
                 gsasl_finish(authSession_);
                 gsasl_done(authCtx_);
-                authSession_ = nullptr;
-                authCtx_ = nullptr;
+                clear_auth_context();
                 break;
             }
 
@@ -712,10 +851,19 @@ public:
                 break;
             }
 
-            case PokerTHMessage_PokerTHMessageType_Type_ChatMessage:
-                std::cout << "Exiting TD" << std::endl;
-                io_context_.stop();
+            case PokerTHMessage_PokerTHMessageType_Type_ChatMessage: {
+                ChatMessage chat = msg.chatmessage();
+                std::cout << "Received Chat: " << chat.chattext() << std::endl;
+                if (chat.chattext() == "watch") {
+                    std::cout << "Starting WatcherBot" << std::endl;
+                    create_and_run_watcher_bot(io_context_, vm_);
+                }
+                if (chat.chattext() == "exit") {
+                    std::cout << "Exiting TD" << std::endl;
+                    io_context_.stop();
+                }
                 break;
+            }
 
             default:
                 std::cerr << "Unhandled message type: " << msg.messagetype() << std::endl;
@@ -723,12 +871,14 @@ public:
         }
     }
 
-    void create_and_run_watcher_bot(const std::string& username,
-                                    const std::string& password, const std::string& server_password,
-                                    const std::string& host, int port,
-                                    boost::asio::io_context& io, const po::variables_map& vm) {
-        auto bot = std::make_shared<WatcherBot>(io, vm);
+    void create_and_run_watcher_bot(boost::asio::io_context& io, const po::variables_map& vm) {
+        const std::string& username = vm["username"].as<std::string>();
+        const std::string& password = vm["watcher-password"].as<std::string>();
+        const std::string& server_password = vm["server-password"].as<std::string>();
+        const std::string& host = vm["host"].as<std::string>();
+        const int& port = vm["port"].as<int>();
         std::string game_name = vm["game-name"].as<std::string>();
+        auto bot = std::make_shared<WatcherBot>(io, vm);
 
         tcp::resolver resolver(io);
         auto endpoints = resolver.resolve(host, std::to_string(port));
@@ -737,7 +887,6 @@ public:
             [&io, bot, username, password, server_password](boost::system::error_code ec, const tcp::endpoint&) {
                 if (!ec) {
                     std::cout << "WatcherBot connected successfully." << std::endl;
-                    // TODO: Add authentication, game creation, and game joining
                     bot->start();
                 } else {
                     std::cerr << "WatcherBot connection failed: " << ec.message() << std::endl;
@@ -747,8 +896,6 @@ public:
 
 private:
     std::unordered_map<int, std::shared_ptr<WatcherBot>> watchers_;
-    Gsasl* authCtx_;
-    Gsasl_session* authSession_;
 };
 
 void async_connect_and_auth(std::shared_ptr<PokerClient> client,
@@ -851,7 +998,7 @@ int main(int argc, char* argv[]) {
 
     boost::asio::io_context io;
 
-    if (!game_name.empty()) {
+    if (false && !game_name.empty()) {
         std::cout << "Launching Watcher Bot for game: " << game_name << std::endl;
         auto watcher = std::make_shared<WatcherBot>(io, vm);
         tcp::resolver resolver(io);
@@ -872,12 +1019,14 @@ int main(int argc, char* argv[]) {
     auto endpoints = resolver.resolve(host, std::to_string(port));
 
     boost::asio::async_connect(td->socket(), endpoints,
-        [td, username, password, server_password](boost::system::error_code ec, const tcp::endpoint&) {
-            if (!ec) {
-                async_connect_and_auth(td, username, password, server_password);
-                td->start();
-            } else std::cout << "TD Failed " << ec.message() << std::endl;
-        });
+    [&io, td, username, password, server_password](boost::system::error_code ec, const tcp::endpoint&) {
+        if (!ec) {
+            std::cout << "WatcherBot connected successfully." << std::endl;
+            td->start();
+        } else {
+            std::cerr << "WatcherBot connection failed: " << ec.message() << std::endl;
+        }
+    });
 
     io.run();
     return 0;
