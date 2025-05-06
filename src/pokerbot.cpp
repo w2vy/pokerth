@@ -13,6 +13,109 @@
 using boost::asio::ip::tcp;
 namespace po = boost::program_options;
 
+#include <array>
+#include <string>
+#include <optional>
+#include <functional>
+
+enum TableState {
+    Idle = 0,
+    Registration = 1,
+    Playing = 2,
+    Finished = 3
+};
+
+enum class GameTypes {
+    Qualifier = 1,
+    Final = 2,
+    Solo = 3
+};
+
+struct Table {
+    TableState state = Idle;
+    uint32_t game_id = 0;
+    std::string name;
+    std::string watcher;
+    std::string Winner;
+    std::string RunnerUp;
+    GameTypes type = GameTypes::Qualifier;
+};
+
+class TableManager {
+public:
+    static constexpr size_t MAX_TABLES = 10;
+    using StateChangeCallback = std::function<void(size_t index, TableState oldState, TableState newState)>;
+
+    TableManager() = default;
+
+    void setStateChangeCallback(StateChangeCallback cb) {
+        callback_ = std::move(cb);
+    }
+
+    std::optional<size_t> allocateTable(const std::string& name, const std::string& watcher, uint32_t game_id, GameTypes type) {
+        for (size_t i = 0; i < tables_.size(); ++i) {
+            if (tables_[i].state == Idle) {
+                tables_[i].state = Registration;
+                tables_[i].game_id = game_id;
+                tables_[i].name = name;
+                tables_[i].watcher = watcher;
+                tables_[i].type = type;
+                tables_[i].Winner.clear();
+                tables_[i].RunnerUp.clear();
+                return i;
+            }
+        }
+        return std::nullopt;
+    }
+
+    void freeTable(size_t index) {
+        if (index < tables_.size()) {
+            TableState oldState = tables_[index].state;
+            tables_[index] = Table();  // Reset
+            triggerCallback(index, oldState, Idle);
+        }
+    }
+
+    bool updateState(size_t index, TableState newState) {
+        if (index < tables_.size() && tables_[index].state != Idle) {
+            TableState oldState = tables_[index].state;
+            if (oldState != newState) {
+                tables_[index].state = newState;
+                triggerCallback(index, oldState, newState);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    Table* getTable(size_t index) {
+        if (index < tables_.size()) {
+            return &tables_[index];
+        }
+        return nullptr;
+    }
+
+    std::optional<size_t> findTableByGameId(uint32_t game_id) const {
+        for (size_t i = 0; i < tables_.size(); ++i) {
+            if (tables_[i].state != Idle && tables_[i].game_id == game_id) {
+                return i;
+            }
+        }
+        return std::nullopt;
+    }
+
+private:
+    void triggerCallback(size_t index, TableState oldState, TableState newState) {
+        if (callback_) {
+            callback_(index, oldState, newState);
+        }
+    }
+
+    std::array<Table, MAX_TABLES> tables_;
+    StateChangeCallback callback_;
+};
+
+
 class PokerClient : public std::enable_shared_from_this<PokerClient> {
 public:
     PokerClient(boost::asio::io_context& io, const po::variables_map& vm)
@@ -21,15 +124,6 @@ public:
     tcp::socket& socket() { return socket_; }
     virtual void start() { do_read_header(); }
     virtual void handle_message(const std::vector<char>& data) = 0;
-
-    ~PokerClient() {
-        clear_auth_context();
-    }
-
-    void clear_auth_context() {
-        if (authSession_) gsasl_finish(authSession_);
-        if (authCtx_) gsasl_done(authCtx_);
-    }
 
     void set_auth_context(Gsasl* ctx, Gsasl_session* session) {
         authCtx_ = ctx;
@@ -338,7 +432,6 @@ public:
                 std::cout << "Authentication complete!" << std::endl;
                 gsasl_finish(authSession_);
                 gsasl_done(authCtx_);
-                clear_auth_context();
                 break;
             }
             case PokerTHMessage_PokerTHMessageType_Type_GameListNewMessage: {
@@ -775,7 +868,6 @@ public:
                 std::cout << "Authentication complete!" << std::endl;
                 gsasl_finish(authSession_);
                 gsasl_done(authCtx_);
-                clear_auth_context();
                 break;
             }
 
@@ -997,22 +1089,6 @@ int main(int argc, char* argv[]) {
     }
 
     boost::asio::io_context io;
-
-    if (false && !game_name.empty()) {
-        std::cout << "Launching Watcher Bot for game: " << game_name << std::endl;
-        auto watcher = std::make_shared<WatcherBot>(io, vm);
-        tcp::resolver resolver(io);
-        auto endpoints = resolver.resolve(host, std::to_string(port));
-        boost::asio::async_connect(watcher->socket(), endpoints,
-            [watcher, username, watcher_password, server_password](boost::system::error_code ec, const tcp::endpoint&) {
-                if (!ec) {
-                    async_connect_and_auth(watcher, username, watcher_password, server_password);
-                    watcher->start();
-                }
-            });
-        io.run();
-        return 0;
-    }
 
     auto td = std::make_shared<TournamentDirector>(io, vm);
     tcp::resolver resolver(io);
