@@ -16,6 +16,7 @@ public:
     }
 
     std::optional<size_t> allocateTable(TournamentDirector* td, const std::string& name) {
+        std::cout << "AllocateTable " << name << std::endl;
         for (size_t i = 0; i < tables_.size(); ++i) {
             if (tables_[i].state == Idle) {
                 tables_[i].mytd = td;

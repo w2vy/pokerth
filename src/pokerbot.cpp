@@ -90,6 +90,7 @@ void TourneyStateMachine(Table *table, TableState oldState, TableState newState)
                 size_t tnum = (*table_num)+1;
                 finalTable->name = "Flux Final " + std::to_string(tnum);
                 finalTable->watcher = "WatcherBot" + std::to_string(tnum);
+                finalTable->type = GameTypes::Final;
             } else {
                 std::cout << "Create Final Game Table failed" << std::endl;
                 return;
