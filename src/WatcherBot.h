@@ -14,7 +14,7 @@ class WatcherBot : public PokerClient {
 public:
     WatcherBot(boost::asio::io_context& io, const po::variables_map& vm, Table *table) : PokerClient(io, vm) {
         watchTable = table;
-        std::cout << "WatcherBot: Watch " << watchTable->name << std::endl;
+        std::cout << watchTable->watcher << ": Watch " << watchTable->name << std::endl;
     }
 
     std::string getNetPlayerState(uint32_t state) {
@@ -142,7 +142,7 @@ public:
                 const std::string& password = vm_["watcher-password"].as<std::string>();
                 const std::string& server_password = vm_["server-password"].as<std::string>();
                             
-                server_auth("WatcherBot", password, server_password);
+                server_auth(watchTable->watcher, password, server_password);
                 break;
             }
             case PokerTHMessage_PokerTHMessageType_Type_InitAckMessage: {
@@ -190,6 +190,8 @@ public:
                 std::cout << "Authentication complete!" << std::endl;
                 gsasl_finish(authSession_);
                 gsasl_done(authCtx_);
+                authSession_ = NULL;
+                authCtx_ = NULL;
                 break;
             }
             case PokerTHMessage_PokerTHMessageType_Type_GameListNewMessage: {
@@ -278,7 +280,17 @@ public:
                 }
                 break;
             }
-
+            case PokerTHMessage_PokerTHMessageType_Type_GameListPlayerLeftMessage: {
+                const GameListPlayerLeftMessage left = msg.gamelistplayerleftmessage();
+                if (left.gameid() == watchTable->game_id) { // This is our table
+                    watchTable->num_players--;
+                    std::cout << "TD Player for " << watchTable->name << " " << watchTable->game_id << " has left " << std::to_string(watchTable->num_players) << " Players" << std::endl;
+                    if (watchTable->num_players == 0) {
+                        shutdownAndDie(); // Close our connection, close our object
+                    }
+                }
+                break;
+            }
             case PokerTHMessage_PokerTHMessageType_Type_GameListUpdateMessage: {
                 const GameListUpdateMessage updateGame = msg.gamelistupdatemessage();
 
@@ -329,9 +341,13 @@ public:
                         send_message(chat);
                     }
                     // Set results so TD can see who advances
-                    watchTable->Winner = first->name;
-                    watchTable->RunnerUp = second->name;
+                    Player Winner = {first->player_id, first->name, 0, 0, 0, 0};
+                    watchTable->Invite.push_back(Winner);
+                    Player RunnerUp = {second->player_id, second->name, 0, 0, 0, 0};
+                    watchTable->Invite.push_back(RunnerUp);
+                    Players.clear();
                     TourneyManager.updateState(watchTable, Finished);
+                    //watchTable = nullptr; // Not sure if I need this
                 }
                 break;
             }
@@ -440,14 +456,6 @@ public:
 
 private:
     Table *watchTable;
-    struct Player {
-        uint32_t player_id;
-        std::string name;
-        int startingStack;    // Money at the start of the hand
-        int committed;        // What they have bet in this hand
-        int winnings;         // what money they won
-        int hand;
-    };
     std::unordered_map<int, Player> Players;
     std::int32_t start_money;
 

@@ -21,6 +21,7 @@ namespace po = boost::program_options;
 #include "Table.h"
 #include "TableManager.h"
 #include "TournamentDirector.h"
+#include "WatcherBot.h"
 
 std::string printableSessionId(const std::string& sessionId) {
     std::ostringstream oss;
@@ -79,32 +80,63 @@ int safe_stoi(const std::string& str, int error_val) {
 
 void TourneyStateMachine(Table *table, TableState oldState, TableState newState) {
     std::cout << "Table[" << table->name << "] changed state from " << oldState << " to " << newState << std::endl;
-    if (newState == Finished) {
-        // Check to see if all Qualifier games are finished and then start Final
-        std::vector<Table*> tables = TourneyManager.activeTables();
-        bool start_final = true;
-        for (const auto& table : tables) {
-            // Read-only access
-            if (table->type != GameTypes::Qualifier) continue;
-            if (table->state == Playing) {
-                start_final = false;
-                break; // Still playing Qualifiers
-            }
-        }
-        if (start_final) {
-            // create game, invite players, etc
-            std::cout << "Create Final Game" << std::endl;
-            std::optional<size_t>table_num = TourneyManager.allocateTable(table->mytd, "Final");
-            Table *myTable = TourneyManager.getTable(table_num);
-            if (myTable) {
+    if (table->type == GameTypes::Qualifier) {
+        std::optional<size_t> table_num = TourneyManager.findTableByType(GameTypes::Final);
+        Table *finalTable = TourneyManager.getTable(table_num);
+        if (!finalTable) { // No final table created yet
+            table_num = TourneyManager.allocateTable(table->mytd, "Final");
+            finalTable = TourneyManager.getTable(table_num);
+            if (finalTable) {
                 size_t tnum = (*table_num)+1;
-                myTable->name = "Flux Final " + std::to_string(tnum);
-                myTable->watcher = "WatcherBot" + std::to_string(tnum);
-                myTable->mytd->createGame(myTable->name, "");
+                finalTable->name = "Flux Final " + std::to_string(tnum);
+                finalTable->watcher = "WatcherBot" + std::to_string(tnum);
             } else {
                 std::cout << "Create Final Game Table failed" << std::endl;
+                return;
             }
-}        
+        }
+        if (newState == Finished) {
+            // Append winner and runner up to finalTable->Invites
+            finalTable->Invite.insert(finalTable->Invite.end(), table->Invite.begin(), table->Invite.end());
+            table->Invite.clear();
+            // Check to see if all Qualifier games are finished and then start Final
+            std::vector<Table*> tables = TourneyManager.activeTables();
+            bool create_final = true;
+            for (const auto& table : tables) {
+                // Read-only access
+                if (table->type != GameTypes::Qualifier) continue;
+                if (table->state == Playing) {
+                    create_final = false;
+                    break; // Still playing Qualifiers
+                }
+            }
+            if (create_final) {
+                // create game, invite players, etc (InvitePlayerToGameMessage)
+                std::cout << "Create Final Game" << std::endl;
+                finalTable->mytd->createGame(finalTable->name, "", NetGameInfo_NetGameType_inviteOnlyGame);
+            }
+        }
+        if (newState == Closed) {
+            //delete table->watchBot;
+            TourneyManager.freeTable(table);
+
+            std::vector<Table*> tables = TourneyManager.activeTables();
+            bool start_final = true;
+            std::cout << "Maybe start final match " << std::endl;
+            for (const auto& table : tables) {
+                // Start final game when all qualifiers are closed
+                if (table->type == GameTypes::Qualifier) {
+                    start_final = false;
+                    break;
+                }
+            }
+            if (start_final) { // Time to Invite all players and play!
+                std::cout << "Start Final " << finalTable->name << std::endl;
+                for (const Player& player : finalTable->Invite) {
+                    finalTable->mytd->inviteGame(finalTable->game_id, player.player_id);
+                }
+            }
+        }
     }
 }
 

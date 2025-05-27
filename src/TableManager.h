@@ -24,8 +24,7 @@ public:
                 tables_[i].name = name;
                 tables_[i].watcher = "WatchBot";
                 tables_[i].type = GameTypes::Qualifier;
-                tables_[i].Winner.clear();
-                tables_[i].RunnerUp.clear();
+                tables_[i].Invite.clear();
                 return i;
             }
         }
@@ -86,6 +85,15 @@ public:
     std::optional<size_t> findTableByGameId(uint32_t game_id) const {
         for (size_t i = 0; i < tables_.size(); ++i) {
             if (tables_[i].state != Idle && tables_[i].game_id == game_id) {
+                return i;
+            }
+        }
+        return std::nullopt;
+    }
+
+    std::optional<size_t> findTableByType(GameTypes type) const {
+        for (size_t i = 0; i < tables_.size(); ++i) {
+            if (tables_[i].state != Idle && tables_[i].type == type) {
                 return i;
             }
         }

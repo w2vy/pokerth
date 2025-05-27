@@ -16,6 +16,9 @@ using boost::asio::ip::tcp;
 #include <boost/asio.hpp>
 #include <boost/program_options.hpp>
 #include <memory>
+#include <boost/asio/post.hpp>
+
+int safe_stoi(const std::string& str, int error_val);
 
 namespace po = boost::program_options;
 
@@ -24,9 +27,36 @@ public:
     PokerClient(boost::asio::io_context& io, const po::variables_map& vm)
         : io_context_(io), socket_(io), vm_(vm) {}
 
+    virtual void shutdownAndDie() {
+        auto self = shared_from_this();
+        std::cout << "shutdownAndDie" << std::endl;
+        close();
+        // Optionally clean up GSASL if used
+        if (authSession_) {
+            gsasl_finish(authSession_);
+        }
+        if (authCtx_) {
+            gsasl_done(authCtx_);
+        }
+        boost::asio::post(io_context_, [self]() {});
+    }
+
     tcp::socket& socket() { return socket_; }
     virtual void start() { do_read_header(); }
     virtual void handle_message(const std::vector<char>& data) = 0;
+
+    virtual void close() {
+        boost::system::error_code ec;
+   
+        // Cancel any ongoing asynchronous operations
+        socket_.cancel(ec);
+    
+        // Shut down the socket (both directions)
+        socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
+    
+        // Close the socket
+        socket_.close(ec);
+    }
 
     void set_auth_context(Gsasl* ctx, Gsasl_session* session) {
         authCtx_ = ctx;
@@ -119,8 +149,8 @@ protected:
     boost::asio::io_context& io_context_; // Store reference
     tcp::socket socket_;
     const po::variables_map& vm_;
-    Gsasl* authCtx_;
-    Gsasl_session* authSession_;
+    Gsasl* authCtx_ = nullptr;
+    Gsasl_session* authSession_ = nullptr;
 
     void do_read_header() {
         auto self(shared_from_this());
@@ -132,12 +162,15 @@ protected:
                     msg_len = ntohl(msg_len);
                     if (msg_len <= 0 || msg_len > 10 * 1024 * 1024) {
                         std::cerr << "Invalid message length: " << msg_len << std::endl;
+                        shutdownAndDie();
                         return;
                     }
                     body_.resize(msg_len);
                     do_read_body();
                 } else {
                     std::cerr << "Header read error: " << ec.message() << std::endl;
+                    shutdownAndDie();
+                    return;
                 }
             });
     }
@@ -152,6 +185,8 @@ protected:
                 } else {
                     std::cerr << "Body read error or incomplete: " << ec.message()
                               << ", bytes: " << bytes_transferred << " expected: " << body_.size() << std::endl;
+                    shutdownAndDie();
+                    return;
                 }
             });
     }
