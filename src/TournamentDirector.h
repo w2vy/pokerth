@@ -209,7 +209,7 @@ public:
                     if (myTable) {
                         size_t tnum = (*table_num)+1;
                         myTable->name = "Flux Table " + std::to_string(tnum);
-                        myTable->watcher = "WatcherBot" + std::to_string(tnum);
+                        myTable->watcher = "WatchBot" + std::to_string(tnum);
                         createGame(myTable->name, "", NetGameInfo_NetGameType_registeredOnlyGame);
                     } else {
                         std::cout << "Create Game Table failed" << std::endl;
@@ -296,10 +296,10 @@ public:
         boost::asio::async_connect(bot->socket(), endpoints,
             [&io, bot, username, password, server_password](boost::system::error_code ec, const tcp::endpoint&) {
                 if (!ec) {
-                    std::cout << "WatcherBot connected successfully." << std::endl;
+                    std::cout << "WatchBot connected successfully." << std::endl;
                     bot->start();
                 } else {
-                    std::cerr << "WatcherBot connection failed: " << ec.message() << std::endl;
+                    std::cerr << "WatchBot connection failed: " << ec.message() << std::endl;
                 }
             });
     }

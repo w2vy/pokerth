@@ -161,7 +161,7 @@ public:
             }
             case PokerTHMessage_PokerTHMessageType_Type_ErrorMessage: {
                 ErrorMessage_ErrorReason cause = msg.errormessage().errorreason();
-                std::cerr << "WatcherBot Received error, reason " << printableErrorReason(cause) << std::endl;
+                std::cerr << "WatchBot Received error, reason " << printableErrorReason(cause) << std::endl;
                 break;
             }
             case PokerTHMessage_PokerTHMessageType_Type_AuthServerChallengeMessage: {
@@ -449,7 +449,7 @@ public:
             case PokerTHMessage_PokerTHMessageType_Type_DealRiverCardMessage:
                 break;
             default:
-                std::cerr << "WatcherBot Unhandled message type: " << msg.messagetype() << " size: " << data.size() << std::endl;
+                std::cerr << "WatchBot Unhandled message type: " << msg.messagetype() << " size: " << data.size() << std::endl;
                 break;
         }
 }
