@@ -199,9 +199,10 @@ public:
             case PokerTHMessage_PokerTHMessageType_Type_ChatMessage: {
                 ChatMessage chat = msg.chatmessage();
                 std::cout << "TD Received Chat: " << chat.chattext() << std::endl;
-                if (chat.chattext() == "watch") {
-                    std::cout << "Starting WatcherBot" << std::endl;
-                }
+                if (chat.chattype() == ChatMessage_ChatType_chatTypePrivate) {
+                    uint32_t playerid = 0;
+                    if (chat.has_playerid()) playerid = chat.playerid();
+
                 if (chat.chattext() == "table") {
                     std::cout << "Create Game MyTest" << std::endl;
                     std::optional<size_t>table_num = TourneyManager.allocateTable(this, "MyTest");
@@ -248,9 +249,44 @@ public:
                     std::cout << "Invite player " << player_id << " to game" << myGame_id << std::endl;
                     inviteGame(myGame_id, player_id);
                 }
+                    if (chat.chattext() == "join" || chat.chattext().compare(0, 9, "join help") == 0) {
+                        if (playerid > 0) {
+                            std::string msg = "The fee is 10 Flux sent to xxx or click here: https://coinrequest.io/request/0ThLBEvWkT8Bmg5";
+                            sendTell(playerid, msg);
+                            msg = "Send the payment, copy the <txid>, wait 3-5 minutes for it to confirm and then re-join";
+                            sendTell(playerid, msg);
+                            msg = "/msg PokerBot join <txid>";
+                            sendTell(playerid, msg);
+                        } else std::cout << "Join no playerid found" << std::endl;
+                    }
+                    // if (chat.chattext().compare(0, 5, "join ") == 0) {
+                    //     std::string txid = chat.chattext().substr(5);
+                    //     static const std::regex rx("^[A-Fa-f0-9]{64}$");
+                    //     if (!std::regex_match(txid, rx)) {
+                    //         std::string msg = "Invalid txid " + txid;
+                    //         sendTell(playerid, msg);
+                    //     } else {
+                    //         // 1) Create the TransactionFetcher and keep it alive in this scope
+                    //         auto fetcher = std::make_shared<TransactionFetcher>(io_context_, ssl_ctx_);
+
+                    //         // 2) “Pin” this WatcherBot alive until the handler runs
+                    //         auto self = shared_from_this();  // requires enable_shared_from_this in WatcherBot
+
+                    //         // 3) Kick off the async fetch, capturing both `self` and `fetcher`
+                    //         fetcher->async_fetch(txid,
+                    //             [self, fetcher](boost::system::error_code ec, Txn txn) {
+                    //                 if (!ec) {
+                    //                     // This runs later, with `self` still valid
+                    //                     self->doSomethingWith(txn.data);
+                    //                 }
+                    //                 // `fetcher` and `self` go out of scope here if no other refs remain
+                    //             });
+                    //     }
+                    // }
                 if (chat.chattext() == "exit") {
                     std::cout << "Exiting TD" << std::endl;
                     io_context_.stop();
+                    }
                 }
                 break;
             }
@@ -278,6 +314,15 @@ public:
             std::cerr << "TD Unhandled message type: " << msg.messagetype() << " size: " << data.size() << std::endl;
                 break;
         }
+    }
+
+    void sendTell(uint32_t playerid, std::string tell) {
+        PokerTHMessage chat;
+        chat.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_ChatRequestMessage);
+        ChatRequestMessage* ChatReq = chat.mutable_chatrequestmessage();
+        ChatReq->set_chattext(tell);
+        ChatReq->set_targetplayerid(playerid);
+        send_message(chat);
     }
 
     void create_and_run_watcher_bot(boost::asio::io_context& io, const po::variables_map& vm, Table *wtable) {
@@ -337,13 +382,13 @@ public:
         joinNew->set_autoleave(true);
         NetGameInfo *tmpGameInfo = joinNew->mutable_gameinfo();
         tmpGameInfo->set_netgametype(NetGameInfo_NetGameType_normalGame);
-        tmpGameInfo->set_maxnumplayers(3); // was 10
+        tmpGameInfo->set_maxnumplayers(10);
         tmpGameInfo->set_raiseintervalmode(NetGameInfo_RaiseIntervalMode_raiseOnHandNum);
         tmpGameInfo->set_raiseeveryhands(5);
         tmpGameInfo->set_endraisemode(NetGameInfo_EndRaiseMode_keepLastBlind);
         tmpGameInfo->set_proposedguispeed(5);
         tmpGameInfo->set_delaybetweenhands(6);
-        tmpGameInfo->set_playeractiontimeout(10);
+        tmpGameInfo->set_playeractiontimeout(15);
         tmpGameInfo->set_endraisesmallblindvalue(0);
         tmpGameInfo->set_firstsmallblind(50);
         tmpGameInfo->set_startmoney(3000);
