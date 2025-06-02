@@ -2,10 +2,84 @@
 
 #include "PokerClient.h"
 #include "WatcherBot.h"
+#include "transaction_fetcher.hpp"
+#include <regex>
+#include <format>
 
 class TournamentDirector : public PokerClient {
 public:
-    TournamentDirector(boost::asio::io_context& io, const boost::program_options::variables_map& vm) : PokerClient(io, vm) {}
+    TournamentDirector(boost::asio::io_context& io, const boost::program_options::variables_map& vm)
+        : PokerClient(io, vm),
+          ssl_ctx_(boost::asio::ssl::context::sslv23_client) {
+        ssl_ctx_.set_verify_mode(boost::asio::ssl::verify_peer);
+        ssl_ctx_.set_default_verify_paths();  // Or load specific CA bundle if needed
+    }
+
+    void validateFluxFee(uint32_t playerid, std::string txid, Txn txn) {
+        std::string botadr = "t1PQKd6qpVyzrrN8ggwQGuAZz6LiLMsbZKu";
+        std::cout << "Player " << playerid << " Validate " << txid << std::endl;
+        if (txn.raw.is_object()) {
+            std::string msg;
+            auto& obj = txn.raw.as_object();
+            if (obj.contains("data")) {
+                if (obj.at("data").is_object()) {
+                    auto data = obj.at("data").as_object();
+                    msg = "Undefined status";
+                    if (get_str(obj, "status") == "error") {
+                        msg = "Failed: " + get_str(data, "name") + " " + std::to_string(get_val(data, "code")) + ": " + get_str(data, "message");
+                    }
+                    if (get_str(obj, "status") == "success") {
+                        const auto confirmations = get_val(data, "confirmations");
+                        std::string short_txid = txid.substr(0, 6) + "..." + txid.substr(txid.size() - 6);
+                        msg = "Success: " + std::to_string(confirmations) + " " + get_str(data, "txid");
+                        sendTell(playerid, msg);
+                        std::string player_adr; // vin.address
+                        uint32_t vin_value, vout_value; // Player vin / vout; fee paid is vin - vout
+                        uint32_t pot_fee; // May have gas fee deducted
+                        const auto vin_entry = data["vin"].as_array();
+                        const auto vout_array = data["vout"].as_array();
+                        if (confirmations > 2) {
+                            if (vin_entry.size() == 1 && vout_array.size() == 2) {
+                                const auto& vin_obj = vin_entry.at(0).as_object();
+                                vin_value = get_val(vin_obj, "valueSat");
+                                player_adr = get_str(vin_obj, "address");
+                                // Now vout
+                                for (const auto& vout_entry : vout_array) {
+                                    const auto& vout_obj = vout_entry.as_object();
+                                    const auto value = get_val(vout_obj, "valueSat");
+                                    const auto& addresses = vout_obj.at("scriptPubKey").at("addresses").as_array();
+                                    if (addresses.size() == 1) {
+                                        std::string addr = addresses[0].as_string().c_str();
+                                        if (addr == player_adr) {
+                                            vout_value = value;
+                                        }
+                                        if (addr == botadr) {
+                                            pot_fee = value;
+                                        }
+                                    }
+                                }
+                                const auto fee_paid = vin_value - vout_value;
+                                const double paid = static_cast<double>(fee_paid)/1e8;
+                                const double pot = static_cast<double>(pot_fee)/1e8;
+                                msg = "Accepted! Confirmations " + std::to_string(confirmations) + " Paid " + std::format("Paid: {:.8f} Flux", paid) + " Add to Pot " + std::format("Paid: {:.8f} Flux", pot);
+                            } else {
+                                msg = "Unexpected transaction format # vin " + std::to_string(vin_entry.size()) + " # vout " + std::to_string(vout_array.size()) + " for " + std::to_string(confirmations) + ") " + short_txid;
+                            }
+                        } else {
+                            msg = "Not confirmed (" + std::to_string(confirmations) + ") " + short_txid;
+                        }
+                        sendTell(playerid, msg);
+                    }
+                } else {
+                    std::cout << "Data not an object in txn" << std::endl;
+                }
+            } else {
+                std::cout << "Data not found in txn" << std::endl;
+            }
+        } else {
+            std::cout << "Txn is not an object!" << std::endl;
+        }
+    }
 
     void handle_message(const std::vector<char>& data) override {
         PokerTHMessage msg;
@@ -203,52 +277,52 @@ public:
                     uint32_t playerid = 0;
                     if (chat.has_playerid()) playerid = chat.playerid();
 
-                if (chat.chattext() == "table") {
-                    std::cout << "Create Game MyTest" << std::endl;
-                    std::optional<size_t>table_num = TourneyManager.allocateTable(this, "MyTest");
-                    Table *myTable = TourneyManager.getTable(table_num);
-                    if (myTable) {
-                        size_t tnum = (*table_num)+1;
-                        myTable->name = "Flux Table " + std::to_string(tnum);
-                        myTable->watcher = "WatchBot" + std::to_string(tnum);
-                        createGame(myTable->name, "", NetGameInfo_NetGameType_registeredOnlyGame);
-                    } else {
-                        std::cout << "Create Game Table failed" << std::endl;
-                    }
-                }
-                if (chat.chattext().compare(0, 6, "start ") == 0) {
-                    size_t tbl = safe_stoi(chat.chattext().substr(6,chat.chattext().size()-6), -1);
-                    std::cout << "Start Table" << std::endl;
-                    if (tbl >= 1 && tbl <= 10) {
-                        Table *t = TourneyManager.getTable(tbl-1);
-                        if (t) {
-                            std::cout << "Start game " << t->game_id << " " << t->name << std::endl;
-                            startGame(t->game_id);
+                    if (chat.chattext() == "table") {
+                        std::cout << "Create Game MyTest" << std::endl;
+                        std::optional<size_t>table_num = TourneyManager.allocateTable(this, "MyTest");
+                        Table *myTable = TourneyManager.getTable(table_num);
+                        if (myTable) {
+                            size_t tnum = (*table_num)+1;
+                            myTable->name = "Flux Table " + std::to_string(tnum);
+                            myTable->watcher = "WatchBot" + std::to_string(tnum);
+                            createGame(myTable->name, "", NetGameInfo_NetGameType_registeredOnlyGame);
                         } else {
-                            std::cout << "Start Game Table " << tbl << " not found" << std::endl;
+                            std::cout << "Create Game Table failed" << std::endl;
                         }
-                    } else {
-                        std::cout << "Invalid start command: should be 'start #' where # is 1-10, received " + chat.chattext() << std::endl;
                     }
-                }
-                if (chat.chattext().compare(0, 6, "leave ") == 0) {
-                    int tbl = safe_stoi(chat.chattext().substr(6,chat.chattext().size()-6), -1);
-                    if (tbl >= 1 && tbl <= 10) {
-                        Table *t = TourneyManager.getTable(tbl-1);
-                        if (t) {
-                            leaveGame(t->game_id);
+                    if (chat.chattext().compare(0, 6, "start ") == 0) {
+                        size_t tbl = safe_stoi(chat.chattext().substr(6,chat.chattext().size()-6), -1);
+                        std::cout << "Start Table" << std::endl;
+                        if (tbl >= 1 && tbl <= 10) {
+                            Table *t = TourneyManager.getTable(tbl-1);
+                            if (t) {
+                                std::cout << "Start game " << t->game_id << " " << t->name << std::endl;
+                                startGame(t->game_id);
+                            } else {
+                                std::cout << "Start Game Table " << tbl << " not found" << std::endl;
+                            }
                         } else {
-                            std::cout << "Start Game Table " << tbl << " not found" << std::endl;
+                            std::cout << "Invalid start command: should be 'start #' where # is 1-10, received " + chat.chattext() << std::endl;
                         }
-                    } else {
-                        std::cout << "Invalid start command: should be 'start #' where # is 1-10, received " + chat.chattext() << std::endl;
                     }
-                }
-                if (chat.chattext().compare(0, 7, "invite ") == 0) {
-                    int player_id = safe_stoi(chat.chattext().substr(6,chat.chattext().size()-6), -1);
-                    std::cout << "Invite player " << player_id << " to game" << myGame_id << std::endl;
-                    inviteGame(myGame_id, player_id);
-                }
+                    if (chat.chattext().compare(0, 6, "leave ") == 0) {
+                        int tbl = safe_stoi(chat.chattext().substr(6,chat.chattext().size()-6), -1);
+                        if (tbl >= 1 && tbl <= 10) {
+                            Table *t = TourneyManager.getTable(tbl-1);
+                            if (t) {
+                                leaveGame(t->game_id);
+                            } else {
+                                std::cout << "Start Game Table " << tbl << " not found" << std::endl;
+                            }
+                        } else {
+                            std::cout << "Invalid start command: should be 'start #' where # is 1-10, received " + chat.chattext() << std::endl;
+                        }
+                    }
+                    if (chat.chattext().compare(0, 7, "invite ") == 0) {
+                        int player_id = safe_stoi(chat.chattext().substr(6,chat.chattext().size()-6), -1);
+                        std::cout << "Invite player " << player_id << " to game" << myGame_id << std::endl;
+                        inviteGame(myGame_id, player_id);
+                    }
                     if (chat.chattext() == "join" || chat.chattext().compare(0, 9, "join help") == 0) {
                         if (playerid > 0) {
                             std::string msg = "The fee is 10 Flux sent to xxx or click here: https://coinrequest.io/request/0ThLBEvWkT8Bmg5";
@@ -259,33 +333,39 @@ public:
                             sendTell(playerid, msg);
                         } else std::cout << "Join no playerid found" << std::endl;
                     }
-                    // if (chat.chattext().compare(0, 5, "join ") == 0) {
-                    //     std::string txid = chat.chattext().substr(5);
-                    //     static const std::regex rx("^[A-Fa-f0-9]{64}$");
-                    //     if (!std::regex_match(txid, rx)) {
-                    //         std::string msg = "Invalid txid " + txid;
-                    //         sendTell(playerid, msg);
-                    //     } else {
-                    //         // 1) Create the TransactionFetcher and keep it alive in this scope
-                    //         auto fetcher = std::make_shared<TransactionFetcher>(io_context_, ssl_ctx_);
+                    if (chat.chattext().compare(0, 5, "join ") == 0) {
+                        std::string txid = chat.chattext().substr(5);
+                        static const std::regex rx("^[A-Fa-f0-9]{64}$");
+                        if (!std::regex_match(txid, rx)) {
+                            std::string msg = "Invalid txid " + txid;
+                            sendTell(playerid, msg);
+                        } else {
+                            auto self = std::static_pointer_cast<TournamentDirector>(shared_from_this());
 
-                    //         // 2) “Pin” this WatcherBot alive until the handler runs
-                    //         auto self = shared_from_this();  // requires enable_shared_from_this in WatcherBot
+                            // Make a shared pointer to TransactionFetcher
+                            auto fetcher = std::make_shared<TransactionFetcher>(io_context_, ssl_ctx_);
 
-                    //         // 3) Kick off the async fetch, capturing both `self` and `fetcher`
-                    //         fetcher->async_fetch(txid,
-                    //             [self, fetcher](boost::system::error_code ec, Txn txn) {
-                    //                 if (!ec) {
-                    //                     // This runs later, with `self` still valid
-                    //                     self->doSomethingWith(txn.data);
-                    //                 }
-                    //                 // `fetcher` and `self` go out of scope here if no other refs remain
-                    //             });
-                    //     }
-                    // }
-                if (chat.chattext() == "exit") {
-                    std::cout << "Exiting TD" << std::endl;
-                    io_context_.stop();
+                            // Define the target URL
+                            std::string url = "/daemon/getrawtransaction?verbose=1&txid=";
+
+                            // Start async fetch, capturing `self` and `fetcher` to keep them alive
+                            fetcher->async_fetch(txid, url,
+                                [self, fetcher, playerid, txid](boost::system::error_code ec, Txn txn) {
+                                    if (ec) {
+                                        std::cout << "Failed to fetch transaction: " << ec.message() << std::endl;
+                                        self->sendTell(playerid, "Transaction verification failed.");
+                                        return;
+                                    }
+
+                                    std::cout << "Transaction fetch success for player " << playerid << std::endl;
+                                    self->validateFluxFee(playerid, txid, txn);
+                                }
+                            );
+                        }
+                    }
+                    if (chat.chattext() == "exit") {
+                        std::cout << "Exiting TD" << std::endl;
+                        io_context_.stop();
                     }
                 }
                 break;
@@ -403,5 +483,21 @@ public:
 private:
     std::unordered_map<int, std::shared_ptr<WatcherBot>> watchers_;
     uint32_t myGame_id = 0;
+    boost::asio::ssl::context ssl_ctx_;
+
+    std::string get_str(const boost::json::object& obj, const std::string& key) {
+        if (obj.contains(key)) {
+            if (obj.at(key).is_string())
+                return obj.at(key).as_string().c_str();
+        }
+        return "";
+    }
+
+    int get_val(const boost::json::object& obj, const std::string& key) {
+        if (obj.contains(key))
+            if (obj.at(key).is_number())
+                return obj.at(key).as_int64();
+        return -1;
+    }
 };
 

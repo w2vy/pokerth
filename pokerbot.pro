@@ -82,6 +82,11 @@ unix : !mac {
 
 	LIBS += $$BOOST_LIBS
 	LIBS += -lprotobuf -lgsasl -lgcrypt -lidn
+	LIBS += -lssl -lcrypto
+	LIBS += -lboost_json
+
+	# Enable C++17 (required for Boost.JSON)
+	CONFIG += c++17
 
 	#### INSTALL ####
 
