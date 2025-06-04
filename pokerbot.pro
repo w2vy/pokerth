@@ -22,6 +22,8 @@ INCLUDEPATH += . \
 DEPENDPATH += . \
 		src
 
+INCLUDEPATH += /usr/include/fmt
+
 # Input
 HEADERS += \
 		src/game_defs.h \
@@ -83,10 +85,10 @@ unix : !mac {
 	LIBS += $$BOOST_LIBS
 	LIBS += -lprotobuf -lgsasl -lgcrypt -lidn
 	LIBS += -lssl -lcrypto
-	LIBS += -lboost_json
+	LIBS += -lboost_json -lfmt
 
 	# Enable C++17 (required for Boost.JSON)
-	CONFIG += c++17
+	#CONFIG += c++17
 
 	#### INSTALL ####
 
