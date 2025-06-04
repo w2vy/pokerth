@@ -331,30 +331,19 @@ public:
                     }
 
                     auto [first, second] = find_winners();
-                    if (first && second) {
-                        std::string shout = "Congratulations to the winners of " + watchTable->name + ": #1 - " + first->name + " #2 - " + second->name;
-                        std::cout << shout << std::endl;
-                        PokerTHMessage chat;
-                        chat.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_ChatRequestMessage);
-                        ChatRequestMessage* ChatReq = chat.mutable_chatrequestmessage();
-                        ChatReq->set_chattext(shout);
-                        send_message(chat);
-                    }
                     // Set results so TD can see who advances
                     Player Winner = {first->player_id, first->name, 0, 0, 0, 0};
                     watchTable->Invite.push_back(Winner);
                     Player RunnerUp = {second->player_id, second->name, 0, 0, 0, 0};
                     watchTable->Invite.push_back(RunnerUp);
-                    Players.clear();
+                    Players.clear(); // Give winner all txids
                     TourneyManager.updateState(watchTable, Finished);
-                    //watchTable = nullptr; // Not sure if I need this
                 }
                 break;
             }
             case PokerTHMessage_PokerTHMessageType_Type_PlayersActionDoneMessage: {
                 const PlayersActionDoneMessage done = msg.playersactiondonemessage();
                 if (done.has_gameid() && done.gameid() == watchTable->game_id && done.has_playerid() && done.has_playermoney()) {
-                    //std::cout << "Players Action Done: Player " << getPlayerName(done.playerid()) << " Bet " << done.totalplayerbet() << " Money " << done.playermoney() << std::endl;
                     setPlayerStack(done.playerid(), done.playermoney());
                 }
                 break;

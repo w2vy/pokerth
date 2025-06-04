@@ -4,7 +4,7 @@
 #include "WatcherBot.h"
 #include "transaction_fetcher.hpp"
 #include <regex>
-#include <format>
+#include <fmt/core.h>
 
 class TournamentDirector : public PokerClient {
 public:
@@ -61,7 +61,7 @@ public:
                                 const auto fee_paid = vin_value - vout_value;
                                 const double paid = static_cast<double>(fee_paid)/1e8;
                                 const double pot = static_cast<double>(pot_fee)/1e8;
-                                msg = "Accepted! Confirmations " + std::to_string(confirmations) + " Paid " + std::format("Paid: {:.8f} Flux", paid) + " Add to Pot " + std::format("Paid: {:.8f} Flux", pot);
+                                msg = fmt::format("Accepted! Confirmations {} Paid: {:.8f} Flux Add to Pot: {:.8f} Flux", confirmations, paid, pot);
                             } else {
                                 msg = "Unexpected transaction format # vin " + std::to_string(vin_entry.size()) + " # vout " + std::to_string(vout_array.size()) + " for " + std::to_string(confirmations) + ") " + short_txid;
                             }
@@ -183,7 +183,7 @@ public:
                             table->game_id = gameid;
                             myGame_id = gameid; // Just for testing TD commands
                             //create_and_run_watcher_bot(io_context_, vm_, table);
-                            if (table->type == GameTypes::Final) {
+                            if (table->type == Final) {
                                 // The Final game was just created, now invite all the winners (first and second)
                                 for (const Player& player : table->Invite) {
                                     inviteGame(gameid, player.player_id);
@@ -394,15 +394,6 @@ public:
             std::cerr << "TD Unhandled message type: " << msg.messagetype() << " size: " << data.size() << std::endl;
                 break;
         }
-    }
-
-    void sendTell(uint32_t playerid, std::string tell) {
-        PokerTHMessage chat;
-        chat.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_ChatRequestMessage);
-        ChatRequestMessage* ChatReq = chat.mutable_chatrequestmessage();
-        ChatReq->set_chattext(tell);
-        ChatReq->set_targetplayerid(playerid);
-        send_message(chat);
     }
 
     void create_and_run_watcher_bot(boost::asio::io_context& io, const po::variables_map& vm, Table *wtable) {

@@ -13,7 +13,18 @@ enum TableState {
     Closed = 4
 };
 
-enum class GameTypes {
+const char* stateName(TableState state) {
+    switch (state) {
+        case Idle:         return "Idle";
+        case Registration: return "Registration";
+        case Playing:      return "Playing";
+        case Finished:     return "Finished";
+        case Closed:       return "Closed";
+        default:           return "Unknown";
+    }
+}
+
+enum GameTypes {
     Qualifier = 1,
     Final = 2,
     Solo = 3
@@ -39,6 +50,6 @@ struct Table {
     bool left_table = false;
     std::vector<Player> Invite;
     int num_players = 0;
-    GameTypes type = GameTypes::Qualifier;
+    GameTypes type = Qualifier;
 };
 

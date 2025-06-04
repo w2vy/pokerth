@@ -145,6 +145,24 @@ public:
         });
     }
 
+    virtual void sendTell(uint32_t playerid, std::string tell) {
+        PokerTHMessage chat;
+        chat.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_ChatRequestMessage);
+        ChatRequestMessage* ChatReq = chat.mutable_chatrequestmessage();
+        ChatReq->set_chattext(tell);
+        ChatReq->set_targetplayerid(playerid);
+        send_message(chat);
+    }
+
+    virtual void sendLobby(std::string shout) {
+        std::cout << shout << std::endl;
+        PokerTHMessage chat;
+        chat.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_ChatRequestMessage);
+        ChatRequestMessage* ChatReq = chat.mutable_chatrequestmessage();
+        ChatReq->set_chattext("lobby:" + shout);
+        send_message(chat);
+    }
+
 protected:
     boost::asio::io_context& io_context_; // Store reference
     tcp::socket socket_;

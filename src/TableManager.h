@@ -24,7 +24,7 @@ public:
                 tables_[i].game_id = 0;
                 tables_[i].name = name;
                 tables_[i].watcher = "WatchBot";
-                tables_[i].type = GameTypes::Qualifier;
+                tables_[i].type = Qualifier;
                 tables_[i].Invite.clear();
                 return i;
             }
