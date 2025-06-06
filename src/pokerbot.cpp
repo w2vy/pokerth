@@ -83,7 +83,7 @@ void TourneyStateMachine(Table *table, TableState oldState, TableState newState)
     if (table->type == Qualifier) {
         std::optional<size_t> table_num = TourneyManager.findTableByType(Final);
         Table *finalTable = TourneyManager.getTable(table_num);
-        if (!finalTable) { // No final table created yet
+        if (!finalTable && table->state == Playing) { // No final table created yet, create once we have a game Playing
             table_num = TourneyManager.allocateTable(table->mytd, "Final");
             finalTable = TourneyManager.getTable(table_num);
             if (finalTable) {
@@ -99,7 +99,7 @@ void TourneyStateMachine(Table *table, TableState oldState, TableState newState)
         if (newState == Playing) {
             table->Invite.clear(); // We're playing, no more invites
         }
-        if (newState == Finished) {
+        if (finalTable && newState == Finished) {
             // Append winner and runner up to finalTable->Invites
             finalTable->Invite.insert(finalTable->Invite.end(), table->Invite.begin(), table->Invite.end());
             std::cout << finalTable->name << " now has " << finalTable->Invite.size() << " Players" << std::endl;
@@ -117,10 +117,10 @@ void TourneyStateMachine(Table *table, TableState oldState, TableState newState)
             if (create_final) {
                 // create game, invite players, etc (InvitePlayerToGameMessage)
                 std::cout << "Create Final Game" << std::endl;
-                finalTable->mytd->createGame(finalTable->name, "", NetGameInfo_NetGameType_inviteOnlyGame);
+                finalTable->mytd->createGame(finalTable->name, "", NetGameInfo_NetGameType_inviteOnlyGame, finalTable->Invite.size());
             }
         }
-        if (newState == Closed) {
+        if (finalTable && newState == Closed) {
             if (table->Invite.size() == 2) {
                 std::string shout = "Congratulations to the winners of " + table->name + ": #1 - " + table->Invite.at(0).name + " #2 - " + table->Invite.at(1).name;
                 std::cout << shout << std::endl;
@@ -141,8 +141,8 @@ void TourneyStateMachine(Table *table, TableState oldState, TableState newState)
             }
             if (start_final) { // Time to Invite all players and play!
                 std::cout << "Start Final " << finalTable->name << std::endl;
-                for (const Player& player : finalTable->Invite) {
-                    std::cout << "Invite " << player.name << std::endl;
+                for (const Player& player : finalTable->Invite) { // This should run until all players have joined or game is started (manually)
+                    std::cout << "Invite " << player.name << " <===========================    INVITE " << std::endl;
                     finalTable->mytd->inviteGame(finalTable->game_id, player.player_id);
                 }
             }

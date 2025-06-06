@@ -182,13 +182,6 @@ public:
                             std::cout << "Game ID set" << std::endl;
                             table->game_id = gameid;
                             myGame_id = gameid; // Just for testing TD commands
-                            //create_and_run_watcher_bot(io_context_, vm_, table);
-                            if (table->type == Final) {
-                                // The Final game was just created, now invite all the winners (first and second)
-                                for (const Player& player : table->Invite) {
-                                    inviteGame(gameid, player.player_id);
-                                }
-                            }
                         }
                     }
                 }
@@ -445,7 +438,8 @@ public:
         send_message(imsg);
     }
 
-    void createGame(std::string name, std::string password, NetGameInfo_NetGameType gameType) {
+    void createGame(std::string name, std::string password, NetGameInfo_NetGameType gameType, int nPlayers) {
+        if (nPlayers < 3) nPlayers = 3; // Minimum of 3 players for now, until we get polling Invites
         // Send create game
         PokerTHMessage msg;
         msg.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_JoinNewGameMessage);
@@ -453,7 +447,7 @@ public:
         joinNew->set_autoleave(true);
         NetGameInfo *tmpGameInfo = joinNew->mutable_gameinfo();
         tmpGameInfo->set_netgametype(NetGameInfo_NetGameType_normalGame);
-        tmpGameInfo->set_maxnumplayers(10);
+        tmpGameInfo->set_maxnumplayers(nPlayers);
         tmpGameInfo->set_raiseintervalmode(NetGameInfo_RaiseIntervalMode_raiseOnHandNum);
         tmpGameInfo->set_raiseeveryhands(5);
         tmpGameInfo->set_endraisemode(NetGameInfo_EndRaiseMode_keepLastBlind);
@@ -469,6 +463,9 @@ public:
             joinNew->set_password(password);
         }
         send_message(msg);
+    }
+    void createGame(std::string name, std::string password, NetGameInfo_NetGameType gameType) {
+        createGame(name, password, gameType, 10);
     }
 
 private:

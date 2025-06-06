@@ -1,0 +1,129 @@
+#include "transaction_fetcher.hpp"
+#include <boost/beast.hpp>
+#include <regex>
+
+namespace beast = boost::beast;
+namespace http  = beast::http;
+using tcp       = asio::ip::tcp;
+
+template<typename Handler>
+void TransactionFetcher::async_fetch(const std::string& txid, const std::string& url, Handler&& handler) {
+  if (!isValidTxid(txid)) {
+    asio::post(io_, [handler]() {
+      handler(boost::asio::error::invalid_argument, Txn{});
+    });
+    return;
+  }
+
+  // Build URL parts
+  auto host   = std::string("api.runonflux.io");
+  //auto target = std::string("/daemon/getrawtransaction?verbose=1&txid=") + txid;
+  auto target = url + txid;
+
+  // We use a shared_ptr so we can keep things alive across async callbacks
+  struct Session : std::enable_shared_from_this<Session> {
+    TransactionFetcher*  fetcher;
+    tcp::resolver        resolver;
+    beast::ssl_stream<beast::tcp_stream> stream;
+    beast::flat_buffer   buffer;
+    http::request<http::empty_body> req;
+    http::response<http::string_body> res;
+    int                   attempt = 0;
+    Handler               handler;
+
+    Session(TransactionFetcher* f, Handler&& h)
+      : fetcher(f)
+      , resolver(f->io_)
+      , stream(f->io_, f->ssl_ctx_)
+      , handler(std::forward<Handler>(h))
+    {
+      req.method(http::verb::get);
+      req.version(11);
+      req.target(target);
+      req.set(http::field::host, host);
+      req.set(http::field::user_agent, "PokerBotFetcher");
+    }
+
+    void run() {
+      attempt++;
+      auto self = shared_from_this();
+      resolver.async_resolve(host, "443",
+        [self](auto ec, auto results) {
+          if (ec) return self->fail(ec);
+          beast::get_lowest_layer(self->stream)
+            .async_connect(results,
+              [self](auto ec, auto) {
+                if (ec) return self->fail(ec);
+                self->handshake();
+              });
+        });
+    }
+
+    void handshake() {
+      auto self = shared_from_this();
+      stream.async_handshake(ssl::stream_base::client,
+        [self](auto ec) {
+          if (ec) return self->fail(ec);
+          self->write_request();
+        });
+    }
+
+    void write_request() {
+      auto self = shared_from_this();
+      http::async_write(stream, req,
+        [self](auto ec, auto) {
+          if (ec) return self->fail(ec);
+          self->read_response();
+        });
+    }
+
+    void read_response() {
+      auto self = shared_from_this();
+      http::async_read(stream, buffer, res,
+        [self](auto ec, auto) {
+          if (ec) return self->fail(ec);
+          self->shutdown();
+        });
+    }
+
+    void shutdown() {
+      auto self = shared_from_this();
+      stream.async_shutdown(
+        [self](auto ec) {
+          // ignore ec from shutdown
+          if (self->res.result() != http::status::ok)
+            return self->fail(beast::error_code{});
+          // parse JSON
+          beast::error_code jec;
+          auto jv = json::parse(self->res.body(), jec);
+
+          if (jec || !jv.is_object())
+              return self->fail(beast::error_code{});
+
+          Txn txn{ jv };  // Pass the full JSON object here
+          self->handler({}, txn);
+        });
+    }
+
+    void fail(beast::error_code ec) {
+      if (attempt < 3) {
+        // retry after 500ms
+        auto self = shared_from_this();
+        asio::steady_timer t(fetcher->io_, std::chrono::milliseconds(500));
+        t.async_wait([self](auto){
+          self->run();
+        });
+      } else {
+        handler(ec, {});
+      }
+    }
+  };
+
+  auto session = std::make_shared<Session>(this, std::forward<Handler>(handler));
+  session->run();
+}
+
+// Explicit instantiation for common handler type:
+template void TransactionFetcher::async_fetch<std::function<void(boost::system::error_code, Txn)>>(
+  const std::string&, const std::string&, std::function<void(boost::system::error_code, Txn)>&&);
+
