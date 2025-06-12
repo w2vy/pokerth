@@ -1,4 +1,4 @@
-# QMake pro-file for the PokerTH dedicated server
+# QMake pro-file for the PokerTH TD Bot
 
 isEmpty( PREFIX ){
 	PREFIX =/usr
@@ -23,6 +23,7 @@ DEPENDPATH += . \
 		src
 
 INCLUDEPATH += /usr/include/fmt
+INCLUDEPATH += /usr/local/include
 
 # Input
 HEADERS += \
@@ -84,11 +85,13 @@ unix : !mac {
 
 	LIBS += $$BOOST_LIBS
 	LIBS += -lprotobuf -lgsasl -lgcrypt -lidn
+	LIBS += -lbitcoin-system
 	LIBS += -lssl -lcrypto
 	LIBS += -lboost_json -lfmt
+	LIB_DIRS += /usr/local/lib
 
 	# Enable C++17 (required for Boost.JSON)
-	#CONFIG += c++17
+	CONFIG += c++17
 
 	#### INSTALL ####
 

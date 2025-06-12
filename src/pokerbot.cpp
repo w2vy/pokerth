@@ -120,7 +120,7 @@ void TourneyStateMachine(Table *table, TableState oldState, TableState newState)
                 finalTable->mytd->createGame(finalTable->name, "", NetGameInfo_NetGameType_inviteOnlyGame, finalTable->Invite.size());
             }
         }
-        if (finalTable && newState == Closed) {
+        if (newState == Closed) {
             if (table->Invite.size() == 2) {
                 std::string shout = "Congratulations to the winners of " + table->name + ": #1 - " + table->Invite.at(0).name + " #2 - " + table->Invite.at(1).name;
                 std::cout << shout << std::endl;
@@ -129,21 +129,23 @@ void TourneyStateMachine(Table *table, TableState oldState, TableState newState)
             table->Invite.clear();
             TourneyManager.freeTable(table);
 
-            std::vector<Table*> tables = TourneyManager.activeTables();
-            bool start_final = true;
-            std::cout << "Maybe start final match " << std::endl;
-            for (const auto& table : tables) {
-                // Start final game when all qualifiers are closed
-                if (table->type == Qualifier) {
-                    start_final = false;
-                    break;
+            if (finalTable) {
+                std::vector<Table*> tables = TourneyManager.activeTables();
+                bool start_final = true;
+                std::cout << "Maybe start final match " << std::endl;
+                for (const auto& table : tables) {
+                    // Start final game when all qualifiers are closed
+                    if (table->type == Qualifier) {
+                        start_final = false;
+                        break;
+                    }
                 }
-            }
-            if (start_final) { // Time to Invite all players and play!
-                std::cout << "Start Final " << finalTable->name << std::endl;
-                for (const Player& player : finalTable->Invite) { // This should run until all players have joined or game is started (manually)
-                    std::cout << "Invite " << player.name << " <===========================    INVITE " << std::endl;
-                    finalTable->mytd->inviteGame(finalTable->game_id, player.player_id);
+                if (start_final) { // Time to Invite all players and play!
+                    std::cout << "Start Final " << finalTable->name << std::endl;
+                    for (const Player& player : finalTable->Invite) { // This should run until all players have joined or game is started (manually)
+                        std::cout << "Invite " << player.name << " <===========================    INVITE " << std::endl;
+                        finalTable->mytd->inviteGame(finalTable->game_id, player.player_id);
+                    }
                 }
             }
         }
@@ -162,6 +164,8 @@ void TourneyStateMachine(Table *table, TableState oldState, TableState newState)
             TourneyManager.freeTable(table);
         }
     }
+    if (table->type == Solo) {
+    }
 }
 
 int main(int argc, char* argv[]) {
@@ -174,7 +178,7 @@ int main(int argc, char* argv[]) {
 
     po::options_description desc("Allowed options");
     desc.add_options()
-        ("help", "produce help message")
+        ("help", "help message")
         ("host", po::value<std::string>(&host)->default_value("127.0.0.1"), "server host")
         ("port", po::value<int>(&port)->default_value(7234), "server port")
         ("username", po::value<std::string>(&username)->default_value("TD"), "username")

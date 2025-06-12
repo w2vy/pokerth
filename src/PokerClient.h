@@ -159,7 +159,7 @@ public:
         PokerTHMessage chat;
         chat.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_ChatRequestMessage);
         ChatRequestMessage* ChatReq = chat.mutable_chatrequestmessage();
-        ChatReq->set_chattext("lobby:" + shout);
+        ChatReq->set_chattext(shout);
         send_message(chat);
     }
 

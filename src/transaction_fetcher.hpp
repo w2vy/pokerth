@@ -29,16 +29,9 @@ public:
         : io_(io), ssl_ctx_(ssl_ctx) {}
 
     template<typename Handler>
-    void async_fetch(const std::string& txid, const std::string& url, Handler&& handler) {
-        if (!isValidTxid(txid)) {
-            asio::post(io_, [handler]() {
-                handler(boost::asio::error::invalid_argument, Txn{});
-            });
-            return;
-        }
-
+    void async_fetch(const std::string& url, Handler&& handler) {
         auto host = std::string("api.runonflux.io");
-        auto target = url + txid;
+        auto target = url;
 
         struct Session : public std::enable_shared_from_this<Session> {
           using std::enable_shared_from_this<Session>::shared_from_this;

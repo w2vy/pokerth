@@ -6,6 +6,29 @@
 #include <regex>
 #include <fmt/core.h>
 
+#include <string>
+#include <iomanip>
+#include <sstream>
+
+std::string url_encode(const std::string& value) {
+    std::ostringstream escaped;
+    escaped.fill('0');
+    escaped << std::hex;
+
+    for (unsigned char c : value) {
+        // Keep alphanumeric and some safe characters
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            escaped << c;
+        } else {
+            // Percent-encode everything else
+            escaped << '%' << std::uppercase << std::setw(2) << int(c);
+            escaped << std::nouppercase;
+        }
+    }
+
+    return escaped.str();
+}
+
 class TournamentDirector : public PokerClient {
 public:
     TournamentDirector(boost::asio::io_context& io, const boost::program_options::variables_map& vm)
@@ -33,35 +56,42 @@ public:
                         std::string short_txid = txid.substr(0, 6) + "..." + txid.substr(txid.size() - 6);
                         msg = "Success: " + std::to_string(confirmations) + " " + get_str(data, "txid");
                         sendTell(playerid, msg);
-                        std::string player_adr; // vin.address
-                        uint32_t vin_value, vout_value; // Player vin / vout; fee paid is vin - vout
-                        uint32_t pot_fee; // May have gas fee deducted
+                        std::string vin_addr; // vin.address
+                        int64_t vin_value, vout_value; // Player vin / vout; fee paid is vin - vout
+                        int vout_index; // vout number when we spend it
+                        int64_t pot_fee; // May have gas fee deducted, capture the amount we can spend
                         const auto vin_entry = data["vin"].as_array();
                         const auto vout_array = data["vout"].as_array();
                         if (confirmations > 2) {
                             if (vin_entry.size() == 1 && vout_array.size() == 2) {
                                 const auto& vin_obj = vin_entry.at(0).as_object();
-                                vin_value = get_val(vin_obj, "valueSat");
-                                player_adr = get_str(vin_obj, "address");
-                                // Now vout
+                                vin_value = get_val64(vin_obj, "valueSat");
+                                vin_addr = get_str(vin_obj, "address");
+                                int vout = 0;
                                 for (const auto& vout_entry : vout_array) {
                                     const auto& vout_obj = vout_entry.as_object();
-                                    const auto value = get_val(vout_obj, "valueSat");
+                                    const auto value = get_val64(vout_obj, "valueSat");
                                     const auto& addresses = vout_obj.at("scriptPubKey").at("addresses").as_array();
                                     if (addresses.size() == 1) {
                                         std::string addr = addresses[0].as_string().c_str();
-                                        if (addr == player_adr) {
+                                        if (addr == vin_addr) {
                                             vout_value = value;
+                                            vout_index = vout;
                                         }
                                         if (addr == botadr) {
                                             pot_fee = value;
                                         }
                                     }
+                                    vout++;
                                 }
                                 const auto fee_paid = vin_value - vout_value;
                                 const double paid = static_cast<double>(fee_paid)/1e8;
                                 const double pot = static_cast<double>(pot_fee)/1e8;
-                                msg = fmt::format("Accepted! Confirmations {} Paid: {:.8f} Flux Add to Pot: {:.8f} Flux", confirmations, paid, pot);
+                                player_adr = vin_addr;
+                                player_pot = pot;
+                                player_txid = txid;
+                                player_vout = vout_index;
+                                msg = fmt::format("Accepted! Confirmations {} Paid: {:.8f} Flux Add to Pot: {:.8f} Flux, vout {}", confirmations, paid, pot, vout_index);
                             } else {
                                 msg = "Unexpected transaction format # vin " + std::to_string(vin_entry.size()) + " # vout " + std::to_string(vout_array.size()) + " for " + std::to_string(confirmations) + ") " + short_txid;
                             }
@@ -222,8 +252,8 @@ public:
                 Table *table = TourneyManager.getTable(table_num);
                 if (table) { // This is a game we care about
                     table->num_players++;
-                    std::cout << "TD Player for " << table->name << " " << table->game_id << " has joined " << std::to_string(table->num_players) << " Players" << std::endl;
-                    if (table->num_players > 1 && !table->watch_started) {
+                    std::cout << "TD Player for " << table->name << " (" << table->game_id << ") " + std::to_string(joined.playerid()) + ") has joined " << std::to_string(table->num_players) << " Players" << std::endl;
+                    if (!table->watch_started) {
                         table->watch_started = true;
                         create_and_run_watcher_bot(io_context_, vm_, table);
                     }
@@ -270,6 +300,12 @@ public:
                     uint32_t playerid = 0;
                     if (chat.has_playerid()) playerid = chat.playerid();
 
+                    if (chat.chattext() == "tables") {
+                        std::vector<Table*> tables = TourneyManager.activeTables();
+                        for (const auto& table : tables) {
+                            std::cout << stateName(table->state) << " " << table->game_id << " " + table->name + " " << table->num_players << " " << table->Invite.size() << std::endl;
+                        }
+                    }
                     if (chat.chattext() == "table") {
                         std::cout << "Create Game MyTest" << std::endl;
                         std::optional<size_t>table_num = TourneyManager.allocateTable(this, "MyTest");
@@ -339,21 +375,59 @@ public:
                             auto fetcher = std::make_shared<TransactionFetcher>(io_context_, ssl_ctx_);
 
                             // Define the target URL
-                            std::string url = "/daemon/getrawtransaction?verbose=1&txid=";
+                            std::string url = "/daemon/getrawtransaction?verbose=1&txid="+txid;
 
                             // Start async fetch, capturing `self` and `fetcher` to keep them alive
-                            fetcher->async_fetch(txid, url,
+                            fetcher->async_fetch(url,
                                 [self, fetcher, playerid, txid](boost::system::error_code ec, Txn txn) {
                                     if (ec) {
                                         std::cout << "Failed to fetch transaction: " << ec.message() << std::endl;
                                         self->sendTell(playerid, "Transaction verification failed.");
                                         return;
                                     }
-
                                     std::cout << "Transaction fetch success for player " << playerid << std::endl;
                                     self->validateFluxFee(playerid, txid, txn);
                                 }
                             );
+                        }
+                    }
+                    if (chat.chattext().compare(0, 5, "send ") == 0) {
+                        std::string txid = chat.chattext().substr(5);
+                        static const std::regex rx("^[A-Fa-f0-9]{64}$");
+                        if (!std::regex_match(txid, rx)) {
+                            std::string msg = "Invalid txid " + txid;
+                            sendTell(playerid, msg);
+                        } else if (player_adr.size() == 0) {
+                            std::string msg = "No player adr, use join <txid> to capture txid details";
+                            sendTell(playerid, msg);
+                        } else {
+                            std::string pot_str = fmt::format("{:.8f}", player_pot);
+                            std::string url_txns = "[{\"txid\":\"" + player_txid + "\",\"vout\":" + std::to_string(player_vout) + "}]";
+                            std::string url_adrs = "{\"" + player_adr + "\":" + pot_str +"}";
+                            std::string encoded_url = "transactions=" + url_encode(url_txns)+"&"+"addresses=" + url_encode(url_adrs);
+                            std::cout << "encoded url " << encoded_url << std::endl;
+                            std::cout << url_txns << std::endl;
+                            std::cout << url_adrs<< std::endl;
+                            // auto self = std::static_pointer_cast<TournamentDirector>(shared_from_this());
+
+                            // // Make a shared pointer to TransactionFetcher
+                            // auto fetcher = std::make_shared<TransactionFetcher>(io_context_, ssl_ctx_);
+
+                            // // Define the target URL
+                            // std::string url = "/daemon/createrawtransaction?" + encoded_url;
+
+                            // // Start async fetch, capturing `self` and `fetcher` to keep them alive
+                            // fetcher->async_fetch(url,
+                            //     [self, fetcher, playerid, txid](boost::system::error_code ec, Txn txn) {
+                            //         if (ec) {
+                            //             std::cout << "Failed to fetch transaction: " << ec.message() << std::endl;
+                            //             self->sendTell(playerid, "Transaction verification failed.");
+                            //             return;
+                            //         }
+                            //         std::cout << "Transaction fetch success for player " << playerid << std::endl;
+                            //         self->validateFluxFee(playerid, txid, txn);
+                            //     }
+                            // );
                         }
                     }
                     if (chat.chattext() == "exit") {
@@ -470,8 +544,12 @@ public:
 
 private:
     std::unordered_map<int, std::shared_ptr<WatcherBot>> watchers_;
-    uint32_t myGame_id = 0;
     boost::asio::ssl::context ssl_ctx_;
+    uint32_t myGame_id = 0; // for testing
+    std::string player_txid = "";
+    std::string player_adr = "";
+    int player_vout;
+    double player_pot;
 
     std::string get_str(const boost::json::object& obj, const std::string& key) {
         if (obj.contains(key)) {
@@ -483,8 +561,19 @@ private:
 
     int get_val(const boost::json::object& obj, const std::string& key) {
         if (obj.contains(key))
-            if (obj.at(key).is_number())
+            if (obj.at(key).is_number()) {
+                std::cout << "get_val " << key << " " << obj.at(key) << std::endl;
                 return obj.at(key).as_int64();
+            }
+        return -1;
+    }
+
+    int64_t get_val64(const boost::json::object& obj, const std::string& key) {
+        if (obj.contains(key))
+            if (obj.at(key).is_number()) {
+                std::cout << "get_val " << key << " " << obj.at(key) << std::endl;
+                return obj.at(key).as_int64();
+            }
         return -1;
     }
 };
