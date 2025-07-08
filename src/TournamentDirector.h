@@ -39,7 +39,7 @@ public:
     }
 
     void validateFluxFee(uint32_t playerid, std::string txid, Txn txn) {
-        std::string botadr = "t1PQKd6qpVyzrrN8ggwQGuAZz6LiLMsbZKu";
+        std::string botadr = "t1KbvgXPrJ1RuCzBr5FjsPZk7XUrswu99zu"; // Retirement
         std::cout << "Player " << playerid << " Validate " << txid << std::endl;
         if (txn.raw.is_object()) {
             std::string msg;
@@ -71,14 +71,16 @@ public:
                                 for (const auto& vout_entry : vout_array) {
                                     const auto& vout_obj = vout_entry.as_object();
                                     const auto value = get_val64(vout_obj, "valueSat");
+                                    const auto script = vout_obj.at("scriptPubKey");
                                     const auto& addresses = vout_obj.at("scriptPubKey").at("addresses").as_array();
                                     if (addresses.size() == 1) {
                                         std::string addr = addresses[0].as_string().c_str();
                                         if (addr == vin_addr) {
                                             vout_value = value;
-                                            vout_index = vout;
+                                            player_script = script.at("hex").as_string();
                                         }
                                         if (addr == botadr) {
+                                            vout_index = vout;
                                             pot_fee = value;
                                         }
                                     }
@@ -91,6 +93,7 @@ public:
                                 player_pot = pot;
                                 player_txid = txid;
                                 player_vout = vout_index;
+                                std::cout << "Player " + vin_addr + " vout " << vout_index << " txid " + txid << std::endl;
                                 msg = fmt::format("Accepted! Confirmations {} Paid: {:.8f} Flux Add to Pot: {:.8f} Flux, vout {}", confirmations, paid, pot, vout_index);
                             } else {
                                 msg = "Unexpected transaction format # vin " + std::to_string(vin_entry.size()) + " # vout " + std::to_string(vout_array.size()) + " for " + std::to_string(confirmations) + ") " + short_txid;
@@ -408,26 +411,37 @@ public:
                             std::cout << "encoded url " << encoded_url << std::endl;
                             std::cout << url_txns << std::endl;
                             std::cout << url_adrs<< std::endl;
-                            // auto self = std::static_pointer_cast<TournamentDirector>(shared_from_this());
+                            std::cout << "script " << player_script << std::endl;
+                            auto self = std::static_pointer_cast<TournamentDirector>(shared_from_this());
 
-                            // // Make a shared pointer to TransactionFetcher
-                            // auto fetcher = std::make_shared<TransactionFetcher>(io_context_, ssl_ctx_);
+                            // Make a shared pointer to TransactionFetcher
+                            auto fetcher = std::make_shared<TransactionFetcher>(io_context_, ssl_ctx_);
 
-                            // // Define the target URL
-                            // std::string url = "/daemon/createrawtransaction?" + encoded_url;
+                            // Define the target URL
+                            std::string url = "/daemon/createrawtransaction?" + encoded_url;
 
-                            // // Start async fetch, capturing `self` and `fetcher` to keep them alive
-                            // fetcher->async_fetch(url,
-                            //     [self, fetcher, playerid, txid](boost::system::error_code ec, Txn txn) {
-                            //         if (ec) {
-                            //             std::cout << "Failed to fetch transaction: " << ec.message() << std::endl;
-                            //             self->sendTell(playerid, "Transaction verification failed.");
-                            //             return;
-                            //         }
-                            //         std::cout << "Transaction fetch success for player " << playerid << std::endl;
-                            //         self->validateFluxFee(playerid, txid, txn);
-                            //     }
-                            // );
+                            // Start async fetch, capturing `self` and `fetcher` to keep them alive
+                            fetcher->async_fetch(url,
+                                [self, fetcher, playerid, txid](boost::system::error_code ec, Txn txn) {
+                                    if (ec) {
+                                        std::cout << "Failed to fetch transaction: " << ec.message() << std::endl;
+                                        self->sendTell(playerid, "Transaction verification failed.");
+                                        return;
+                                    }
+                                    std::cout << "Transaction fetch success for player " << playerid << std::endl;
+                                    //self->validateFluxFee(playerid, txid, txn);
+                                    std::string hexstr = "(not found)";
+                                    if (txn.raw.is_object()) {
+                                        auto& obj = txn.raw.as_object();
+                                        if (obj.contains("data")) {
+                                            if (obj.at("data").is_string()) {
+                                                hexstr = obj.at("data").as_string().c_str();
+                                            }
+                                        }
+                                    } else std::cout << "create raw - no object" << std::endl;
+                                    std::cout << "create raw: " << hexstr << std::endl;
+                                }
+                            );
                         }
                     }
                     if (chat.chattext() == "exit") {
@@ -550,6 +564,7 @@ private:
     std::string player_adr = "";
     int player_vout;
     double player_pot;
+    std::string player_script;
 
     std::string get_str(const boost::json::object& obj, const std::string& key) {
         if (obj.contains(key)) {
@@ -562,7 +577,7 @@ private:
     int get_val(const boost::json::object& obj, const std::string& key) {
         if (obj.contains(key))
             if (obj.at(key).is_number()) {
-                std::cout << "get_val " << key << " " << obj.at(key) << std::endl;
+                //std::cout << "get_val " << key << " " << obj.at(key) << std::endl;
                 return obj.at(key).as_int64();
             }
         return -1;
@@ -571,7 +586,7 @@ private:
     int64_t get_val64(const boost::json::object& obj, const std::string& key) {
         if (obj.contains(key))
             if (obj.at(key).is_number()) {
-                std::cout << "get_val " << key << " " << obj.at(key) << std::endl;
+                //std::cout << "get_val " << key << " " << obj.at(key) << std::endl;
                 return obj.at(key).as_int64();
             }
         return -1;

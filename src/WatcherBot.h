@@ -65,6 +65,23 @@ public:
         return "Player " + std::to_string(player_id);
     }
 
+    uint32_t getPlayerByName(std::string name) {
+        // Find the player by name
+        auto it = std::find_if(Players.begin(), Players.end(),
+            [&name](const auto& pair) {
+            return pair.second.name == name;
+        });
+
+        uint32_t id = 0;
+        if (it != Players.end()) {
+            std::cout << "Found player ID: " << it->second.player_id << std::endl;
+            id = it->second.player_id;
+        } else {
+            std::cout << "Player not found." << std::endl;
+        }
+        return id;
+    }
+
     void setPlayerName(uint32_t player_id, std::string name) {
         auto it = Players.find(player_id);
         if (it != Players.end()) {
@@ -113,6 +130,24 @@ public:
         if (it != Players.end()) {
             Players[player_id].hand = hand;
         }
+    }
+
+    void inviteGame(uint32_t gameid, uint32_t player_id) {
+        PokerTHMessage imsg;
+        imsg.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_InvitePlayerToGameMessage);
+        InvitePlayerToGameMessage* invite = imsg.mutable_inviteplayertogamemessage();
+        invite->set_gameid(gameid);
+        invite->set_playerid(player_id);
+        send_message(imsg);
+    }
+
+    void startGame(uint32_t gameid) {
+        PokerTHMessage start;
+        start.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_StartEventMessage);
+        start.mutable_starteventmessage()->set_gameid(gameid);
+        start.mutable_starteventmessage()->set_starteventtype(StartEventMessage_StartEventType_startEvent);
+        start.mutable_starteventmessage()->set_fillwithcomputerplayers(false);
+        send_message(start);
     }
 
     void handle_message(const std::vector<char>& data) override {
@@ -418,17 +453,32 @@ public:
             case PokerTHMessage_PokerTHMessageType_Type_ChatMessage: {
                 ChatMessage chat = msg.chatmessage();
                 std::cout << watchTable->watcher << " Received Chat: " << chat.chattext() << std::endl;
-                if (chat.chattext() == "exit") {
-                    std::cout << "Exiting WB" << std::endl;
-                    io_context_.stop();
-                }
-                if (chat.chattext() == "ping") {
-                    std::string msg = "Ping Pong " + std::to_string(8) + " times";
-                    PokerTHMessage chat;
-                    chat.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_ChatRequestMessage);
-                    ChatRequestMessage* ChatReq = chat.mutable_chatrequestmessage();
-                    ChatReq->set_chattext(msg);
-                    send_message(chat);
+                if (chat.chattype() == ChatMessage_ChatType_chatTypePrivate) {
+                    if (chat.chattext() == "exit") {
+                        std::cout << "Exiting WB" << std::endl;
+                        io_context_.stop();
+                    }
+                    if (chat.chattext() == "ping") {
+                        std::string msg = "Ping Pong " + std::to_string(8) + " times";
+                        PokerTHMessage chat;
+                        chat.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_ChatRequestMessage);
+                        ChatRequestMessage* ChatReq = chat.mutable_chatrequestmessage();
+                        ChatReq->set_chattext(msg);
+                        send_message(chat);
+                    }
+                    if (chat.chattext().compare(0, 7, "invite ") == 0) {
+                        std::string pname = chat.chattext().substr(7); // Invite player
+                        uint32_t player_id = getPlayerByName(pname);
+                        if (player_id > 0) {
+                            inviteGame(watchTable->game_id, player_id);
+                            std::cout << "Invite sent for Player " << player_id << " in game " << watchTable->game_id << std::endl;
+                        }
+                        std::cout << "Bad player_id " << player_id << std::endl;
+                    }
+                    if (chat.chattext() == "start") {
+                        startGame(watchTable->game_id);
+                        std::cout << "Game " << watchTable->game_id << " Started" << std::endl;
+                    }
                 }
                 break;
             }

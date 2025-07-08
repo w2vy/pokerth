@@ -3,6 +3,8 @@
 isEmpty( PREFIX ){
 	PREFIX =/usr
 }
+# Set boost to 1.72
+#BOOST_ROOT = /opt/boost_1_72
 
 TEMPLATE = app
 CODECFORSRC = UTF-8
@@ -85,7 +87,7 @@ unix : !mac {
 
 	LIBS += $$BOOST_LIBS
 	LIBS += -lprotobuf -lgsasl -lgcrypt -lidn
-	LIBS += -lbitcoin-system
+	#LIBS += -lbitcoin-system
 	LIBS += -lssl -lcrypto
 	LIBS += -lboost_json -lfmt
 	LIB_DIRS += /usr/local/lib
@@ -101,3 +103,20 @@ unix : !mac {
 	INSTALLS += binary
 }
 
+# install boost_1_72 at /opt/boost_1_72
+#
+# git checkout 83fb1bcef49b1c12ef349f62d90bfcc83f0f7398
+# ./autogen.sh
+# ./configure --prefix=/usr/local --enable-module-recovery --enable-experimental
+# make
+# sudo make install
+#
+# checkout bitcoin-system ver 2.0.10
+#./autogen.sh
+#
+#./configure \
+#  --prefix=/usr/local \
+#  --with-boost=/opt/boost_1_72 \
+#  --with-boost-libdir=/opt/boost_1_72/lib \
+#  CXXFLAGS="-I/opt/boost_1_72/include -I/opt/openssl-1.0.2/include" \
+#  LDFLAGS="-L/opt/boost_1_72/lib -L/opt/openssl-1.0.2/lib -Wl,-rpath=/opt/openssl-1.0.2/lib"
