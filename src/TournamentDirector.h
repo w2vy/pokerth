@@ -57,16 +57,27 @@ public:
                         msg = "Success: " + std::to_string(confirmations) + " " + get_str(data, "txid");
                         sendTell(playerid, msg);
                         std::string vin_addr; // vin.address
-                        int64_t vin_value, vout_value; // Player vin / vout; fee paid is vin - vout
-                        int vout_index; // vout number when we spend it
-                        int64_t pot_fee; // May have gas fee deducted, capture the amount we can spend
-                        const auto vin_entry = data["vin"].as_array();
+                        int64_t vin_value, vout_value = 0; // Player vin / vout; fee paid is vin - vout
+                        int vout_index = 0; // vout number when we spend it
+                        int64_t pot_fee = 0; // May have gas fee deducted, capture the amount we can spend
+                        const auto vin_array = data["vin"].as_array();
                         const auto vout_array = data["vout"].as_array();
                         if (confirmations > 2) {
-                            if (vin_entry.size() == 1 && vout_array.size() == 2) {
-                                const auto& vin_obj = vin_entry.at(0).as_object();
-                                vin_value = get_val64(vin_obj, "valueSat");
-                                vin_addr = get_str(vin_obj, "address");
+                            if (vin_array.size() >= 1 && vout_array.size() >= 1) {
+                                vin_value = 0;
+                                vin_addr = "";
+                                for (const auto& vin_entry : vin_array) {
+                                    const auto& vin_obj = vin_entry.as_object();
+                                    vin_value += get_val64(vin_obj, "valueSat");
+                                    std::string addr = get_str(vin_obj, "address");
+                                    if (vin_addr.size() == 0) vin_addr = addr;
+                                    else {
+                                        if (addr != vin_addr) {
+                                            vin_addr = "";
+                                            break;
+                                        }
+                                    }
+                                }
                                 int vout = 0;
                                 for (const auto& vout_entry : vout_array) {
                                     const auto& vout_obj = vout_entry.as_object();
@@ -96,7 +107,7 @@ public:
                                 std::cout << "Player " + vin_addr + " vout " << vout_index << " txid " + txid << std::endl;
                                 msg = fmt::format("Accepted! Confirmations {} Paid: {:.8f} Flux Add to Pot: {:.8f} Flux, vout {}", confirmations, paid, pot, vout_index);
                             } else {
-                                msg = "Unexpected transaction format # vin " + std::to_string(vin_entry.size()) + " # vout " + std::to_string(vout_array.size()) + " for " + std::to_string(confirmations) + ") " + short_txid;
+                                msg = "Unexpected transaction format # vin " + std::to_string(vin_array.size()) + " # vout " + std::to_string(vout_array.size()) + " for " + std::to_string(confirmations) + ") " + short_txid;
                             }
                         } else {
                             msg = "Not confirmed (" + std::to_string(confirmations) + ") " + short_txid;

@@ -3,8 +3,6 @@
 isEmpty( PREFIX ){
 	PREFIX =/usr
 }
-# Set boost to 1.72
-#BOOST_ROOT = /opt/boost_1_72
 
 TEMPLATE = app
 CODECFORSRC = UTF-8
@@ -87,13 +85,15 @@ unix : !mac {
 
 	LIBS += $$BOOST_LIBS
 	LIBS += -lprotobuf -lgsasl -lgcrypt -lidn
-	#LIBS += -lbitcoin-system
 	LIBS += -lssl -lcrypto
 	LIBS += -lboost_json -lfmt
 	LIB_DIRS += /usr/local/lib
 
 	# Enable C++17 (required for Boost.JSON)
-	CONFIG += c++17
+	#CONFIG += c++17
+
+	LIBS += -lfluxsign
+	LIB_DIRS += ~/Git/fluxd/src
 
 	#### INSTALL ####
 
