@@ -18,6 +18,7 @@ namespace po = boost::program_options;
 #include <optional>
 #include <functional>
 
+//#include "fluxsign.h"
 #include "Table.h"
 #include "TableManager.h"
 #include "TournamentDirector.h"
@@ -155,11 +156,17 @@ void TourneyStateMachine(Table *table, TableState oldState, TableState newState)
             table->Invite.clear(); // We're playing, no more invites
         }
         if (newState == Closed) {
+            if (table->Invite.size() == 1) {
+                std::string shout = "Congratulations to the winner of " + table->name + ": " + table->Invite.at(0).name;
+                std::cout << shout << std::endl;
+                table->mytd->sendLobby(shout);
+            }
             if (table->Invite.size() == 2) {
                 std::string shout = "Congratulations to the winners of " + table->name + ": #1 - " + table->Invite.at(0).name + " #2 - " + table->Invite.at(1).name;
                 std::cout << shout << std::endl;
                 table->mytd->sendLobby(shout);
             }
+            // Send winner(s) prize here?
             table->Invite.clear();
             TourneyManager.freeTable(table);
         }
@@ -175,6 +182,7 @@ int main(int argc, char* argv[]) {
     std::string watcher_password;
     std::string server_password;
     std::string game_name;
+    std::string privKey;
 
     po::options_description desc("Allowed options");
     desc.add_options()
@@ -183,6 +191,7 @@ int main(int argc, char* argv[]) {
         ("port", po::value<int>(&port)->default_value(7234), "server port")
         ("username", po::value<std::string>(&username)->default_value("TD"), "username")
         ("password", po::value<std::string>(&password)->default_value(""), "user password")
+        ("privKey", po::value<std::string>(&privKey)->default_value(""), "WifKey for bot wallet")
         ("watcher-password", po::value<std::string>(&watcher_password)->default_value(""), "watcher bot password")
         ("server-password", po::value<std::string>(&server_password)->default_value(""), "server password")
         ("game-name", po::value<std::string>(&game_name)->default_value(""), "Game Name to watch (used by watcher bots)");
@@ -197,6 +206,13 @@ int main(int argc, char* argv[]) {
     }
 
     boost::asio::io_context io;
+
+    if (privKey.size() == 0) {
+        std::cerr << "No private key defined --privKey missing!" << std::endl;
+        return -1;
+    }
+    //fluxsignStart();
+    //fluxsignAddKey(privKey);
 
     TourneyManager.setStateChangeCallback(TourneyStateMachine);
 
@@ -215,5 +231,6 @@ int main(int argc, char* argv[]) {
     });
 
     io.run();
+    //fluxsignStop();
     return 0;
 }

@@ -92,9 +92,6 @@ unix : !mac {
 	# Enable C++17 (required for Boost.JSON)
 	#CONFIG += c++17
 
-	LIBS += -lfluxsign
-	LIB_DIRS += ~/Git/fluxd/src
-
 	#### INSTALL ####
 
 	binary.path += $${PREFIX}/bin/
