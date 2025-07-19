@@ -53,7 +53,7 @@ public:
 
     void addPlayer(uint32_t player_id) {
         if (Players.find(player_id) == Players.end()) {
-            Players[player_id] = { player_id, "", start_money, 0, 0, 0 };
+            Players[player_id] = { player_id, "", "", start_money, 0, 0, 0 };
         }
     }
 
@@ -368,9 +368,9 @@ public:
 
                     auto [first, second] = find_winners();
                     // Set results so TD can see who advances
-                    Player Winner = {first->player_id, first->name, 0, 0, 0, 0};
+                    Player Winner = {first->player_id, "", first->name, 0, 0, 0, 0};
                     watchTable->Invite.push_back(Winner);
-                    Player RunnerUp = {second->player_id, second->name, 0, 0, 0, 0};
+                    Player RunnerUp = {second->player_id, "", second->name, 0, 0, 0, 0};
                     watchTable->Invite.push_back(RunnerUp);
                     Players.clear(); // Give winner all txids
                     TourneyManager.updateState(watchTable, Finished);

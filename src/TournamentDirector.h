@@ -10,6 +10,8 @@
 #include <iomanip>
 #include <sstream>
 
+const int MaxTablePlayers = 10;
+
 std::string url_encode(const std::string& value) {
     std::ostringstream escaped;
     escaped.fill('0');
@@ -54,7 +56,6 @@ public:
 
     void validateFluxFee(uint32_t playerid, const std::string& txid, const Txn& txn,
                         std::function<void(FluxResult)> on_result) {
-        std::string botadr = "t1KbvgXPrJ1RuCzBr5FjsPZk7XUrswu99zu";
         std::cout << "Player " << playerid << " Validate " << txid << std::endl;
 
         if (!txn.raw.is_object()) {
@@ -403,7 +404,7 @@ public:
                         int64_t game_fee = 0;
                         try {
                             game_fee = std::stoll(fee_str);
-                            if (game_fee <= 0) throw std::invalid_argument("non-positive Entry fee");
+                            if (game_fee < 0) throw std::invalid_argument("non-positive Entry fee");
                         } catch (...) {
                             sendTell(playerid, "Invalid Entry fee. Use: solo <entry_fee> [prize_txid|'none'] [Game Name]");
                             break;
@@ -434,32 +435,26 @@ public:
                         std::string game_prize_txid = "";
                         auto self = std::static_pointer_cast<TournamentDirector>(shared_from_this());
 
-                        auto startGame = [this, playerid, game_fee, game_name]() {
+                        auto openGame = [this, playerid, game_fee, game_name]() {
                             std::cout << "Create Solo Game" << std::endl;
-                            std::optional<size_t> table_num = TourneyManager.allocateTable(this, "MyTest");
-                            Table* myTable = TourneyManager.getTable(table_num);
-                            if (myTable) {
-                                activeTourney = OneRound;
-                                entryFee = game_fee;
-                                size_t tnum = (*table_num) + 1;
-                                myTable->name = "Flux Table " + std::to_string(tnum);
-                                myTable->watcher = "WatchBot" + std::to_string(tnum);
-                                createGame(myTable->name, "", NetGameInfo_NetGameType_registeredOnlyGame);
-                            } else {
-                                std::cout << "Create Game Table failed" << std::endl;
-                            }
+                            activeTourney = OneRound;
+                            registrationOpen = true;
+                            entryFee = game_fee;
+                            gameName = game_name;
+                            maxRegistration = 10;
+                            sendTell(playerid, game_name + " is open! Have players 'join <txid>' or 'join' if free");
                         };
 
                         if (txid.empty()) {
                             std::cout << "No txid provided. Proceeding without entry fee validation.\n";
-                            startGame();  // No validation needed
+                            openGame();  // No validation needed
                         } else {
                             std::cout << "Validating txid: " << txid << "\n";
                             auto fetcher = std::make_shared<TransactionFetcher>(io_context_, ssl_ctx_);
                             std::string url = "/daemon/getrawtransaction?verbose=1&txid=" + txid;
 
                             fetcher->async_fetch(url,
-                                [self, fetcher, playerid, txid, startGame](boost::system::error_code ec, Txn txn) {
+                                [self, fetcher, playerid, txid, openGame](boost::system::error_code ec, Txn txn) {
                                     if (ec) {
                                         std::cout << "Failed to fetch transaction: " << ec.message() << std::endl;
                                         self->sendTell(playerid, "Transaction verification failed.");
@@ -468,29 +463,133 @@ public:
 
                                     std::cout << "Transaction fetch success for prize " << playerid << std::endl;
 
-                                    self->validateFluxFee(playerid, txid, txn, [self, startGame](FluxResult result) {
+                                    self->validateFluxFee(playerid, txid, txn, [self, openGame](FluxResult result) {
                                         std::cout << "Received result for player address: " << result.vin_address << std::endl;
                                         self->prizeFlux = result.pot_flux;
                                         self->prizeTxid = result.txid;
-                                        startGame();
+                                        openGame();
                                     });
                                 }
                             );
                         }
                     }
-                    if (chat.chattext() == "join" || chat.chattext().compare(0, 9, "join help") == 0) {
-                        if (playerid > 0) {
-                            std::string msg = "The fee is 10 Flux sent to xxx or click here: https://coinrequest.io/request/0ThLBEvWkT8Bmg5";
+                    if (chat.chattext() == "start") {
+                        if (playerid == 0) {
+                            std::cout << "join: no playerid for: " << chat.chattext() << std::endl;
+                            break;
+                        }
+                        if (activeTourney == NoTourney) {
+                            sendTell(playerid, "No tourney active, can't start!");
+                            break;
+                        }
+                        if (!registrationOpen) {
+                            sendTell(playerid, "Tourney is not open");
+                            break;
+                        }
+                        registrationOpen = false;
+                        int nextRegistered = 0;
+                        int nTables = registeredPlayers.size()/MaxTablePlayers;
+                        int nExtra = registeredPlayers.size() - (nTables*MaxTablePlayers);
+                        if (nExtra > 0) {
+                            nTables++;
+                        }
+                        int nPlayers = registeredPlayers.size()/nTables;
+                        // Create nTables with nPlayers and nExtra tables have +1
+                        int n = 0;
+                        while (n < nTables) {
+                            int np = nPlayers;
+                            if (nExtra > 0 && nTables > 1) {
+                                np = nPlayers + 1;
+                                nExtra--;
+                            }
+                            n++;
+                            std::cout << "Create " << gameName << std::endl;
+                            std::optional<size_t> table_num = TourneyManager.allocateTable(this, "Temp Name");
+                            Table* myTable = TourneyManager.getTable(table_num);
+                            if (myTable) {
+                                size_t tnum = (*table_num) + 1;
+                                myTable->name = gameName + "_" + std::to_string(tnum);
+                                myTable->watcher = "WatchBot" + std::to_string(tnum);
+                                if (activeTourney == OneRound) myTable->type = Solo;
+                                std::cout << "Create table " << myTable->name << " with " << np << " Players" << std::endl;
+                                createGame(myTable->name, "", NetGameInfo_NetGameType_inviteOnlyGame, np);
+                                int processed = 0;
+                                for (auto it = registeredPlayers.begin(); it != registeredPlayers.end(); ++it) {
+                                    if (it->first >= nextRegistered) {
+                                        uint32_t pid = it->first;
+                                        Player rPlayer = {pid, it->second, "", 0, 0, 0, 0};
+                                        myTable->Invite.push_back(rPlayer);
+                                        if (++processed >= np) break;
+                                    }
+                                }
+                                nextRegistered += np;
+                            } else {
+                                std::cout << "Create Game Table failed" << std::endl;
+                                break;
+                            }
+                        }
+                    }
+                    if (chat.chattext() == "join help") {
+                        if (playerid == 0) {
+                            std::cout << "join: no playerid for: " << chat.chattext() << std::endl;
+                            break;
+                        }
+                        if (activeTourney == NoTourney) {
+                            sendTell(playerid, "No tourney active. Join syntax: `join [txid]`");
+                            sendTell(playerid, "Where txid is only needed for tourneys with an entry fee.");
+                        } else {
+                            if (entryFee > 0) {
+                                std::string msg = fmt::format("The entry fee is {:.8f} Flux, which is sent to {} copy the txid for the join command",
+                                    entryFee, botadr);
+                                sendTell(playerid, msg);
+                                sendTell(playerid, "join <txid>");
+                            } else {
+                                sendTell(playerid, "The current tourney has no entry fee, so just type 'join'");
+                            }
+                        }
+                    }
+                    if (chat.chattext() == "join") {
+                        if (playerid == 0) {
+                            std::cout << "join: no playerid for: " << chat.chattext() << std::endl;
+                            break;
+                        }
+                        if (activeTourney == NoTourney) {
+                            sendTell(playerid, "No tourney active, see 'join help' for more info");
+                            break;
+                        }
+                        if (!registrationOpen) {
+                            sendTell(playerid, "Registration is not open, sorry.");
+                            break;
+                        }
+                        if (registeredPlayers.size() == maxRegistration) {
+                            sendTell(playerid, "I am sorry the tourney is full, better luck next time!");
+                            if (entryFee > 0) {
+                                sendTell(playerid, "If you have sent an entry fee, you can use it for a future tourney");
+                            }
+                            break;
+                        }
+                        if (entryFee == 0) { // Enter player in tourney
+                            sendTell(playerid, "You have been entered into the tourney, you will receive an invite when play starts");
+                            registeredPlayers[playerid] = "free";
+                            std::cout << "There are " << registeredPlayers.size() << " registered" << std::endl;
+                            break;
+                        } else {
+                            std::string msg = fmt::format("The fee is {:.8f} Flux sent to {}", entryFee, botadr);
                             sendTell(playerid, msg);
-                            msg = "Send the payment, copy the <txid>, wait 3-5 minutes for it to confirm and then re-join";
+                            msg = "Send the payment, copy the <txid>, wait 2-3 minutes for it to confirm and then re-join";
                             sendTell(playerid, msg);
                             msg = "/msg PokerBot join <txid>";
                             sendTell(playerid, msg);
-                        } else std::cout << "Join no playerid found" << std::endl;
+                            break;
+                        }
                     }
                     if (chat.chattext().compare(0, 5, "join ") == 0) {
                         if (activeTourney == NoTourney) {
                             sendTell(playerid, "No tourney active");
+                            break;
+                        }
+                        if (!registrationOpen) {
+                            sendTell(playerid, "Registration is not open, sorry.");
                             break;
                         }
                         std::string txid = chat.chattext().substr(5);
@@ -516,7 +615,7 @@ public:
                                         return;
                                     }
                                     std::cout << "Transaction fetch success for player " << playerid << std::endl;
-                                    self->validateFluxFee(playerid, txid, txn, [this, playerid](FluxResult result) {
+                                    self->validateFluxFee(playerid, txid, txn, [this, playerid, txid](FluxResult result) {
                                         std::cout << "Received result for player address: " << result.vin_address << std::endl;
                                         if (result.paid_flux != entryFee) {
                                             sendTell(playerid, fmt::format("The entry fee is {:.8f} Flux, your txid is for {:.8f} Flux",
@@ -524,6 +623,8 @@ public:
                                         } else {
                                             sendTell(playerid, "Your entry has been accepted, you will receive an invite");
                                             std::cout << "Fee Paid " << result.paid_flux << " pot " << result.pot_flux << std::endl;
+                                            registeredPlayers[playerid] = txid;
+                                            std::cout << "There are " << registeredPlayers.size() << " registered" << std::endl;
                                         }
                                     });
                                 }
@@ -695,10 +796,16 @@ public:
 private:
     std::unordered_map<int, std::shared_ptr<WatcherBot>> watchers_;
     boost::asio::ssl::context ssl_ctx_;
+    std::string botadr = "t1KbvgXPrJ1RuCzBr5FjsPZk7XUrswu99zu";
     TourneyType activeTourney = NoTourney;
+    bool registrationOpen = false;
+    uint32_t maxRegistration;
+    Table *activeTable;
     std::string prizeTxid = "";
+    std::unordered_map<int, std::string> registeredPlayers;
     int64_t prizeFlux = 0;
     int64_t entryFee = 0;
+    std::string gameName = "";
 
     std::string player_txid = "";
     std::string player_adr = "";
