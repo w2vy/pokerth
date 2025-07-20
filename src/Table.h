@@ -7,15 +7,17 @@ class TournamentDirector;  // Forward declaration
 
 enum TableState {
     Idle = 0,
-    Registration = 1,
-    Playing = 2,
-    Finished = 3,
-    Closed = 4
+    Connecting = 1,
+    Registration = 2,
+    Playing = 3,
+    Finished = 4,
+    Closed = 5
 };
 
 const char* stateName(TableState state) {
     switch (state) {
         case Idle:         return "Idle";
+        case Connecting:   return "Connecting";
         case Registration: return "Registration";
         case Playing:      return "Playing";
         case Finished:     return "Finished";
