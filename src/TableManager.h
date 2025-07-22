@@ -10,11 +10,11 @@ public:
     void removeTable(uint32_t id);
     std::vector<Table> getTables();
     void updateState(uint32_t id, TableState newState);
-    void setStateChangeCallback(uint32_t id, std::function(TableState)> callback);
+    void setStateChangeCallback(uint32_t id, std::function<void(TableState)> callback);
 
 private:
-    std::map32_t, Table> tables;
-    std::map32_t, std::function(TableState)>> stateChangeCallbacks;
+    std::map<uint32_t, Table> tables;
+    std::map<uint32_t, std::function <void(TableState)>> stateChangeCallbacks;
 };
 
 #endif  // TABLEMANAGER_H
