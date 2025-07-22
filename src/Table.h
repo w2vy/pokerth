@@ -1,58 +1,28 @@
-#pragma once
+#ifndef TABLE_H
+#define TABLE_H
 
-#include <string>
-#include <cstdint>
+#include "TableState.h"
+#include "Player.h"
+#include "TournamentDirector.h"
+#include <vector>
 
-class TournamentDirector;  // Forward declaration
-
-enum TableState {
-    Idle = 0,
-    Connecting = 1,
-    Registration = 2,
-    Playing = 3,
-    Finished = 4,
-    Closed = 5
-};
-
-const char* stateName(TableState state) {
-    switch (state) {
-        case Idle:         return "Idle";
-        case Connecting:   return "Connecting";
-        case Registration: return "Registration";
-        case Playing:      return "Playing";
-        case Finished:     return "Finished";
-        case Closed:       return "Closed";
-        default:           return "Unknown";
-    }
-}
-
-enum GameTypes {
-    Qualifier = 1,
-    Final = 2,
-    Solo = 3
-};
-
-struct Player {
-    uint32_t player_id;
-    std::string txid;     // Player's entry fee
+struct TableInfo {
+    uint32_t game_id;
     std::string name;
-    int startingStack;    // Money at the start of the hand
-    int committed;        // What they have bet in this hand
-    int winnings;         // what money they won
-    int hand;
+    std::string watcher;
+    bool watch_started;
+    bool left_table;
+};
+
+struct TableInfoState {
+    TableInfo info;
+    std::vector<Player> invite;
+    TableInfoState() : info(), invite() {}
 };
 
 struct Table {
+    TableInfoState state;
     TournamentDirector* mytd = nullptr;
-    //WatchBot* watchBot = nullptr;
-    TableState state = Idle;
-    uint32_t game_id = 0;
-    std::string name;
-    std::string watcher;
-    bool watch_started = false;
-    bool left_table = false;
-    std::vector<Player> Invite;
-    int num_players = 0;
-    GameTypes type = Qualifier;
 };
 
+#endif  // TABLE_H

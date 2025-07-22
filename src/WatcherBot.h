@@ -14,7 +14,7 @@ class WatcherBot : public PokerClient {
 public:
     WatcherBot(boost::asio::io_context& io, const po::variables_map& vm, Table *table) : PokerClient(io, vm) {
         watchTable = table;
-        std::cout << watchTable->watcher << ": Watch " << watchTable->name << std::endl;
+        std::cout << watchTable->state.info.watcher << ": Watch " << watchTable->state.info.name << std::endl;
     }
 
     std::string getNetPlayerState(uint32_t state) {
@@ -121,7 +121,7 @@ public:
                 Players[player_id].winnings = 0;
             }
             Players[player_id].hand = 0;
-            std::cout << watchTable->watcher << " " << getPlayerName(player_id) << " Stack " << Players[player_id].startingStack << std::endl;
+            std::cout << watchTable->state.info.watcher << " " << getPlayerName(player_id) << " Stack " << Players[player_id].startingStack << std::endl;
         }
     }
 
@@ -167,7 +167,7 @@ public:
                 auto serverType = ann.servertype();
                 uint32_t numPlayers = ann.numplayersonserver();
             
-                std::cout << watchTable->watcher << " Received AnnounceMessage:\n"
+                std::cout << watchTable->state.info.watcher << " Received AnnounceMessage:\n"
                         << "  Protocol Version: " << protoVer.majorversion() << "." << protoVer.minorversion() << "\n"
                         << "  Latest Game Version: " << latestVer.majorversion() << "." << latestVer.minorversion() << "\n"
                         << "  Latest Beta Revision: " << betaRev << "\n"
@@ -177,7 +177,7 @@ public:
                 const std::string& password = vm_["watcher-password"].as<std::string>();
                 const std::string& server_password = vm_["server-password"].as<std::string>();
                             
-                server_auth(watchTable->watcher, password, server_password);
+                server_auth(watchTable->state.info.watcher, password, server_password);
                 break;
             }
             case PokerTHMessage_PokerTHMessageType_Type_InitAckMessage: {
@@ -196,7 +196,7 @@ public:
             }
             case PokerTHMessage_PokerTHMessageType_Type_ErrorMessage: {
                 ErrorMessage_ErrorReason cause = msg.errormessage().errorreason();
-                std::cerr << watchTable->watcher << " Received error, reason " << printableErrorReason(cause) << std::endl;
+                std::cerr << watchTable->state.info.watcher << " Received error, reason " << printableErrorReason(cause) << std::endl;
                 break;
             }
             case PokerTHMessage_PokerTHMessageType_Type_AuthServerChallengeMessage: {
@@ -222,7 +222,7 @@ public:
             }
 
             case PokerTHMessage_PokerTHMessageType_Type_AuthServerVerificationMessage: {
-                std::cout << watchTable->watcher << " Authentication complete!" << std::endl;
+                std::cout << watchTable->state.info.watcher << " Authentication complete!" << std::endl;
                 gsasl_finish(authSession_);
                 gsasl_done(authCtx_);
                 authSession_ = NULL;
@@ -231,23 +231,23 @@ public:
             }
             case PokerTHMessage_PokerTHMessageType_Type_GameListNewMessage: {
                 // When does this happen? Game Created or Play Starts?
-                std::cout << watchTable->watcher << " Received GameListNewMessage" << std::endl;
+                std::cout << watchTable->state.info.watcher << " Received GameListNewMessage" << std::endl;
                 const GameListNewMessage& newGame = msg.gamelistnewmessage();
                 uint32_t gameid = newGame.has_gameid() ? newGame.gameid() : 0;
                 std::string gname = newGame.gameinfo().gamename();
                 std::cout << "Game " << gname << " (" << gameid << ") just started!" << std::endl;
-                std::cout << "watchTable Game " << watchTable->name << " " << watchTable->game_id << std::endl;
+                std::cout << "watchTable Game " << watchTable->state.info.name << " " << watchTable->state.info.game_id << std::endl;
                 std::optional<size_t>table_num = TourneyManager.findTableByGameId(gameid);
                 if (table_num.has_value()) {
-                    Table *t = TourneyManager.getTable(table_num);
+                    Table *t = TourneyManager.getTable(table_num.value());
                     int gid = 0;
-                    if (t) gid = t->game_id;
+                    if (t) gid = t->state.info.game_id;
                     std::cout << "findTable " << *table_num << " game id " << gid << std::endl;
                 } else std::cout << "No table for Game " << gameid << std::endl;
             
-                if (watchTable->game_id == gameid && gname == watchTable->name) {
-                    std::cout << "Found My Game " << watchTable->name << std::endl;
-                    //watchTable->game_id = gameid;
+                if (watchTable->state.info.game_id == gameid && gname == watchTable->state.info.name) {
+                    std::cout << "Found My Game " << watchTable->state.info.name << std::endl;
+                    //watchTable->state.info.game_id = gameid;
 
                     PokerTHMessage joinMsg;
                     joinMsg.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_JoinExistingGameMessage);
@@ -262,19 +262,19 @@ public:
 
             case PokerTHMessage_PokerTHMessageType_Type_JoinGameAckMessage: {
                 const JoinGameAckMessage ack = msg.joingameackmessage();
-                std::cout << watchTable->watcher << " JoinGame Ack Watcher " << ack.gameid() << " Table " << watchTable->game_id << std::endl;
-                if (ack.gameid() == watchTable->game_id) {
+                std::cout << watchTable->state.info.watcher << " JoinGame Ack Watcher " << ack.gameid() << " Table " << watchTable->state.info.game_id << std::endl;
+                if (ack.gameid() == watchTable->state.info.game_id) {
                     if (ack.has_spectateonly()) {
                         if (ack.spectateonly()) {
-                            std::cout << "Joined game " << watchTable->name << " (" << watchTable->game_id << ") as spectator!" << std::endl;
+                            std::cout << "Joined game " << watchTable->state.info.name << " (" << watchTable->state.info.game_id << ") as spectator!" << std::endl;
                             if (ack.has_gameinfo()) {
                                 start_money = ack.gameinfo().startmoney();
                             }
                         } else {
-                            std::cout << "Joined game " << watchTable->name << " (" << watchTable->game_id << ") NOT as spectator!" << std::endl;
+                            std::cout << "Joined game " << watchTable->state.info.name << " (" << watchTable->state.info.game_id << ") NOT as spectator!" << std::endl;
                         }
                     } else {
-                        std::cout << "Joined game " << watchTable->name << " (" << watchTable->game_id << ") NO Spectator field!" << std::endl;
+                        std::cout << "Joined game " << watchTable->state.info.name << " (" << watchTable->state.info.game_id << ") NO Spectator field!" << std::endl;
                     }
                 }
                 break;
@@ -282,9 +282,9 @@ public:
 
             case PokerTHMessage_PokerTHMessageType_Type_JoinGameFailedMessage: {
                 const JoinGameFailedMessage nack = msg.joingamefailedmessage();
-                if (nack.gameid() == watchTable->game_id) {
+                if (nack.gameid() == watchTable->state.info.game_id) {
                     int cause = nack.joingamefailurereason();
-                    std::cout << watchTable->watcher << " Join game " << watchTable->name << " (" << watchTable->game_id << ") as Spectator failed " << cause << std::endl;
+                    std::cout << watchTable->state.info.watcher << " Join game " << watchTable->state.info.name << " (" << watchTable->state.info.game_id << ") as Spectator failed " << cause << std::endl;
                 }
                 break;
             }
@@ -293,7 +293,7 @@ public:
                 const GameStartInitialMessage start = msg.gamestartinitialmessage();
                 if (start.has_gameid()) {
                     uint32_t game_Id = start.gameid();
-                    if (game_Id == watchTable->game_id) { // Our game has started
+                    if (game_Id == watchTable->state.info.game_id) { // Our game has started
                         std::string message = "Game started with " + std::to_string(start.playerseats_size()) + " Players";
                         PokerTHMessage chat;
                         chat.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_ChatRequestMessage);
@@ -317,9 +317,9 @@ public:
             }
             case PokerTHMessage_PokerTHMessageType_Type_GameListPlayerLeftMessage: {
                 const GameListPlayerLeftMessage left = msg.gamelistplayerleftmessage();
-                if (left.gameid() == watchTable->game_id) { // This is our table
+                if (left.gameid() == watchTable->state.info.game_id) { // This is our table
                     watchTable->num_players--;
-                    std::cout << watchTable->watcher << " WB Player for " << watchTable->name << " (" << watchTable->game_id << ") " + getPlayerName(left.playerid()) + " (" + std::to_string(left.playerid()) + ") has left " << std::to_string(watchTable->num_players) << " Players" << std::endl;
+                    std::cout << watchTable->state.info.watcher << " WB Player for " << watchTable->state.info.name << " (" << watchTable->state.info.game_id << ") " + getPlayerName(left.playerid()) + " (" + std::to_string(left.playerid()) + ") has left " << std::to_string(watchTable->num_players) << " Players" << std::endl;
                     if (watchTable->num_players == 0) {
                         shutdownAndDie(); // Close our connection, close our object
                     }
@@ -330,10 +330,10 @@ public:
                 // Removed 6/10 TD needs to handle this event
                 // const GameListUpdateMessage updateGame = msg.gamelistupdatemessage();
 
-                // if (updateGame.gameid() == watchTable->game_id) { // Our game state has changed
+                // if (updateGame.gameid() == watchTable->state.info.game_id) { // Our game state has changed
                 //     switch (updateGame.gamemode()) {
                 //         case netGameClosed:
-                //             watchTable->game_id = 0; // Our game is gone
+                //             watchTable->state.info.game_id = 0; // Our game is gone
                 //             // io_context_.stop();
                 //             break;
                 //         case netGameCreated:
@@ -349,7 +349,7 @@ public:
                 if (info.has_playerinfodata()) {
                     std::string name = info.playerinfodata().playername();
                     setPlayerName(player_id, name);
-                    std::cout << watchTable->name << ": Player " << player_id << " is " << name << std::endl;
+                    std::cout << watchTable->state.info.name << ": Player " << player_id << " is " << name << std::endl;
                 }
                 break;
             }
@@ -360,8 +360,8 @@ public:
                 } else {
                     std::cout << "A Game has ended" << std::endl;
                 }
-                if (endGame.has_gameid() && watchTable->game_id == endGame.gameid()) {
-                    std::cout << watchTable->watcher << " Game " << watchTable->name << " has ended - Winner: " << std::endl;
+                if (endGame.has_gameid() && watchTable->state.info.game_id == endGame.gameid()) {
+                    std::cout << watchTable->state.info.watcher << " Game " << watchTable->state.info.name << " has ended - Winner: " << std::endl;
                     if (endGame.has_winnerplayerid()) {
                         std::cout << "The winner is: " << getPlayerName(endGame.winnerplayerid()) << std::endl;
                     }
@@ -379,7 +379,7 @@ public:
             }
             case PokerTHMessage_PokerTHMessageType_Type_PlayersActionDoneMessage: {
                 const PlayersActionDoneMessage done = msg.playersactiondonemessage();
-                if (done.has_gameid() && done.gameid() == watchTable->game_id && done.has_playerid() && done.has_playermoney()) {
+                if (done.has_gameid() && done.gameid() == watchTable->state.info.game_id && done.has_playerid() && done.has_playermoney()) {
                     setPlayerStack(done.playerid(), done.playermoney());
                 }
                 break;
@@ -387,7 +387,7 @@ public:
 
             case PokerTHMessage_PokerTHMessageType_Type_PlayersTurnMessage: {
                 const PlayersTurnMessage turn = msg.playersturnmessage();
-                if (turn.gameid() == watchTable->game_id) {
+                if (turn.gameid() == watchTable->state.info.game_id) {
                     //std::cout << "Players Turn: Player: " << getPlayerName(turn.playerid()) << " " << getNetGameState(turn.gamestate()) << std::endl;
                 }
                 break;
@@ -395,8 +395,8 @@ public:
             case PokerTHMessage_PokerTHMessageType_Type_HandStartMessage: {
                 const HandStartMessage start = msg.handstartmessage();
                 if (start.has_gameid()) {
-                    if (start.gameid() == watchTable->game_id) {
-                        std::cout << watchTable->watcher << " Start Hand:";
+                    if (start.gameid() == watchTable->state.info.game_id) {
+                        std::cout << watchTable->state.info.watcher << " Start Hand:";
                         if (start.has_plaincards()) {
                             std::cout << " Card1 " << start.plaincards().plaincard1() << "Card 2 " << start.plaincards().plaincard2();
                         }
@@ -412,16 +412,16 @@ public:
             }
             case PokerTHMessage_PokerTHMessageType_Type_EndOfHandHideCardsMessage: {
                 EndOfHandHideCardsMessage end = msg.endofhandhidecardsmessage();
-                if (end.has_gameid() && end.gameid() == watchTable->game_id && end.has_playerid() && end.has_playermoney()) {
-                    std::cout << watchTable->watcher << " End of Hand Hide: Player: " << getPlayerName(end.playerid()) << " Won " << end.moneywon() << " Total " << end.playermoney() << std::endl;
+                if (end.has_gameid() && end.gameid() == watchTable->state.info.game_id && end.has_playerid() && end.has_playermoney()) {
+                    std::cout << watchTable->state.info.watcher << " End of Hand Hide: Player: " << getPlayerName(end.playerid()) << " Won " << end.moneywon() << " Total " << end.playermoney() << std::endl;
                     setPlayerStackWon(end.playerid(), end.moneywon());
                 }
                 break;
             }
             case PokerTHMessage_PokerTHMessageType_Type_EndOfHandShowCardsMessage: {
                 EndOfHandShowCardsMessage show = msg.endofhandshowcardsmessage();
-                if (show.gameid() == watchTable->game_id) {
-                    std::cout << watchTable->watcher << " End of Hand Show Cards" << std::endl;
+                if (show.gameid() == watchTable->state.info.game_id) {
+                    std::cout << watchTable->state.info.watcher << " End of Hand Show Cards" << std::endl;
                     for (int i=0;i<show.playerresults_size();i++) {
                         PlayerResult res = show.playerresults()[i];
                         std::string hand = "";
@@ -429,7 +429,7 @@ public:
                             hand = " Hand Strength: " + std::to_string(res.cardsvalue());
                             setPlayerHand(res.playerid(), res.cardsvalue());
                         }
-                        std::cout << watchTable->watcher << " Player " << getPlayerName(res.playerid()) << " Won " << res.moneywon() << " Total " << res.playermoney() << hand << std::endl;
+                        std::cout << watchTable->state.info.watcher << " Player " << getPlayerName(res.playerid()) << " Won " << res.moneywon() << " Total " << res.playermoney() << hand << std::endl;
                         setPlayerStackWon(res.playerid(), res.moneywon());
                     }
                 }
@@ -440,7 +440,7 @@ public:
                 PlayerResult res = show.playerresult();
                 if (res.has_cardsvalue()) {
                     setPlayerHand(res.playerid(), res.cardsvalue());
-                    std::cout << watchTable->watcher << " Player " << getPlayerName(res.playerid()) << " Hand Strength: " + std::to_string(res.cardsvalue()) << std::endl;
+                    std::cout << watchTable->state.info.watcher << " Player " << getPlayerName(res.playerid()) << " Hand Strength: " + std::to_string(res.cardsvalue()) << std::endl;
                 }
                 break;
             }
@@ -452,7 +452,7 @@ public:
             }
             case PokerTHMessage_PokerTHMessageType_Type_ChatMessage: {
                 ChatMessage chat = msg.chatmessage();
-                std::cout << watchTable->watcher << " Received Chat: " << chat.chattext() << std::endl;
+                std::cout << watchTable->state.info.watcher << " Received Chat: " << chat.chattext() << std::endl;
                 if (chat.chattype() == ChatMessage_ChatType_chatTypePrivate) {
                     if (chat.chattext() == "exit") {
                         std::cout << "Exiting WB" << std::endl;
@@ -470,14 +470,14 @@ public:
                         std::string pname = chat.chattext().substr(7); // Invite player
                         uint32_t player_id = getPlayerByName(pname);
                         if (player_id > 0) {
-                            inviteGame(watchTable->game_id, player_id);
-                            std::cout << "Invite sent for Player " << player_id << " in game " << watchTable->game_id << std::endl;
+                            inviteGame(watchTable->state.info.game_id, player_id);
+                            std::cout << "Invite sent for Player " << player_id << " in game " << watchTable->state.info.game_id << std::endl;
                         }
                         std::cout << "Bad player_id " << player_id << std::endl;
                     }
                     if (chat.chattext() == "start") {
-                        startGame(watchTable->game_id);
-                        std::cout << "Game " << watchTable->game_id << " Started" << std::endl;
+                        startGame(watchTable->state.info.game_id);
+                        std::cout << "Game " << watchTable->state.info.game_id << " Started" << std::endl;
                     }
                 }
                 break;
@@ -493,7 +493,7 @@ public:
             case PokerTHMessage_PokerTHMessageType_Type_DealRiverCardMessage:
                 break;
             default:
-                std::cerr << watchTable->watcher << " Unhandled message type: " << msg.messagetype() << " size: " << data.size() << std::endl;
+                std::cerr << watchTable->state.info.watcher << " Unhandled message type: " << msg.messagetype() << " size: " << data.size() << std::endl;
                 break;
         }
 }

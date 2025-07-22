@@ -243,8 +243,8 @@ public:
                     int gameid = ack.gameid();
                     std::string game_name = ack.gameinfo().gamename();
                     std::cout << "JoinGame Ack TD " << gameid << " Table " << game_name << std::endl;
-                    std::optional<size_t> table_num = TourneyManager.findTableByName(game_name);
-                    Table *table = TourneyManager.getTable(table_num);
+                    std::optional<size_t> table_num = TableManager::getInstance().findTableByName(game_name);
+                    Table *table = TableManager::getInstance().getTable(table_num.value());
                     if (table) { // We have a table with that name
                         std::cout << "JoinGameAck TD " << game_name << " id " << gameid << " was " << table->game_id << std::endl;
                         if (table->game_id == 0) { // Game ID not set
@@ -286,8 +286,8 @@ public:
             }
             case PokerTHMessage_PokerTHMessageType_Type_GameListPlayerJoinedMessage: {
                 const GameListPlayerJoinedMessage joined = msg.gamelistplayerjoinedmessage();
-                std::optional<size_t> table_num = TourneyManager.findTableByGameId(joined.gameid());
-                Table *table = TourneyManager.getTable(table_num);
+                std::optional<size_t> table_num = TableManager::getInstance().findTableByGameId(joined.gameid());
+                Table* table = TableManager::getInstance().getTable(table_num.value());
                 if (table) { // This is a game we care about
                     table->num_players++;
                     std::cout << "TD Player for " << table->name << " (" << table->game_id << ") " + std::to_string(joined.playerid()) + ") has joined " << std::to_string(table->num_players) << " Players" << std::endl;
@@ -315,9 +315,9 @@ public:
             case PokerTHMessage_PokerTHMessageType_Type_GameListUpdateMessage: {
                 const GameListUpdateMessage update = msg.gamelistupdatemessage();
                 uint32_t gameid = update.gameid();
-                std::optional<size_t> table_num = TourneyManager.findTableByGameId(gameid);
+                std::optional<size_t> table_num = TableManager::getInstance().findTableByGameId(joined.gameid());
+                Table* table = TableManager::getInstance().getTable(table_num.value());
                 std::cout << "Game Update " << gameid << std::endl;
-                Table *table = TourneyManager.getTable(table_num);
                 if (table) { // This is a game we care about
                     std::cout << table->name << " Game Update " << update.gamemode() << std::endl;
                     if (update.gamemode() == netGameClosed) TourneyManager.updateState(table, Closed);
@@ -339,15 +339,15 @@ public:
                     if (chat.has_playerid()) playerid = chat.playerid();
 
                     if (chat.chattext() == "tables") {
-                        std::vector<Table*> tables = TourneyManager.activeTables();
+                        std::vector<Table> tables = TableManager::getInstance().getTables();
                         for (const auto& table : tables) {
                             std::cout << stateName(table->state) << " " << table->game_id << " " + table->name + " " << table->num_players << " " << table->Invite.size() << std::endl;
                         }
                     }
                     if (chat.chattext() == "table") {
                         std::cout << "Create Game MyTest" << std::endl;
-                        std::optional<size_t>table_num = TourneyManager.allocateTable(this, "MyTest");
-                        Table *myTable = TourneyManager.getTable(table_num);
+                        std::optional<size_t> table_num = TableManager::getInstance().addTable(this, "MyTest");
+                        Table* myTable = TableManager::getInstance().getTable(table_num.value());
                         if (myTable) {
                             size_t tnum = (*table_num)+1;
                             myTable->name = "Flux Table " + std::to_string(tnum);
@@ -361,7 +361,7 @@ public:
                         size_t tbl = safe_stoi(chat.chattext().substr(6,chat.chattext().size()-6), -1);
                         std::cout << "Start Table" << std::endl;
                         if (tbl >= 1 && tbl <= 10) {
-                            Table *t = TourneyManager.getTable(tbl-1);
+                            Table *t = TableManager::getInstance().getTable(tbl-1);
                             if (t) {
                                 std::cout << "Start game " << t->game_id << " " << t->name << std::endl;
                                 startGame(t->game_id);
@@ -504,8 +504,8 @@ public:
                             }
                             n++;
                             std::cout << "Create " << gameName << std::endl;
-                            std::optional<size_t> table_num = TourneyManager.allocateTable(this, "Temp Name");
-                            Table* myTable = TourneyManager.getTable(table_num);
+                            std::optional<size_t> table_num = TableManager::getInstance().addTable(this, "Temp Name");
+                            Table* myTable = TableManager::getInstance().getTable(table_num.value());
                             if (myTable) {
                                 size_t tnum = (*table_num) + 1;
                                 myTable->name = gameName + "_" + std::to_string(tnum);
