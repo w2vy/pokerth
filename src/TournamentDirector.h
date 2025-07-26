@@ -3,7 +3,6 @@
 #include "PokerClient.h"
 #include "transaction_fetcher.hpp"
 #include <regex>
-#include <fmt/core.h>
 #include <functional>
 #include <string>
 #include <iomanip>

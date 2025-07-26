@@ -4,7 +4,7 @@ Table& TableManager::addTable(TournamentDirector* mytd, const std::string& name,
     size_t id = tables.size();
     Table table;
     uint32_t suffix_id = getNewSuffix();
-    table.mytd = mytd;
+    //table.mytd = mytd;
     table.info.name = name + " "  + std::to_string(suffix_id);
     table.info.watcher = watcher + " "  + std::to_string(suffix_id);
     table.invite = std::vector<Player>();

@@ -22,7 +22,7 @@ const std::unordered_map<TableState, std::string> stateNameMap = {
     {TableState::Closed, "Closed"}
 };
 
-const std::string stateName(TableState state) {
+inline const std::string stateName(TableState state) {
     auto it = stateNameMap.find(state);
     return it!= stateNameMap.end()? it->second : "Unknown";
 }

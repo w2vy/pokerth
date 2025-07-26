@@ -1,6 +1,8 @@
 #ifndef TABLEMANAGER_H
 #define TABLEMANAGER_H
 
+#include <optional>
+#include <functional>
 #include "Table.h"
 
 class TournamentDirector; // Forward declaration

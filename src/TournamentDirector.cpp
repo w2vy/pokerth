@@ -1,12 +1,6 @@
-// #include "PokerClient.h"
-// #include "WatcherBot.h"
-// #include "transaction_fetcher.hpp"
-// #include <regex>
-// #include <fmt/core.h>
-
-// #include <string>
-// #include <iomanip>
-// #include <sstream>
+#include <sstream>
+#include <string>
+#include <iomanip>
 #include "TableManager.h"
 #include "PokerClient.h"
 #include "WatcherBot.h"
@@ -129,8 +123,13 @@ void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& t
     const double pot = static_cast<double>(pot_fee) / 1e8;
 
     std::cout << "Player " << vin_addr << " vout " << vout_index << " txid " << txid << std::endl;
-    msg = fmt::format("Accepted! Confirmations {} Paid: {:.8f} Flux Add to Pot: {:.8f} Flux, vout {}",
-                    confirmations, paid, pot, vout_index);
+    std::ostringstream oss;
+    oss << "Accepted! Confirmations " << confirmations
+        << " Paid: " << std::fixed << std::setprecision(8) << paid
+        << " Flux Add to Pot: " << std::fixed << std::setprecision(8) << pot
+        << " Flux, vout " << vout_index;
+
+    std::string msg = oss.str();
     sendTell(playerid, msg);
 
     // ⬇️ Return values via callback
@@ -505,8 +504,11 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                         sendTell(playerid, "Where txid is only needed for tourneys with an entry fee.");
                     } else {
                         if (entryFee > 0) {
-                            std::string msg = fmt::format("The entry fee is {:.8f} Flux, which is sent to {} copy the txid for the join command",
-                                entryFee, botadr);
+                            std::ostringstream oss;
+                            oss << "The entry fee is " << std::fixed << std::setprecision(8) << entryFee \
+                                << "Flux, which is sent to " << botadr
+                                << " copy the txid for the join command";
+                            std::string msg = oss.str();
                             sendTell(playerid, msg);
                             sendTell(playerid, "join <txid>");
                         } else {
@@ -540,7 +542,10 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                         std::cout << "There are " << registeredPlayers.size() << " registered" << std::endl;
                         break;
                     } else {
-                        std::string msg = fmt::format("The fee is {:.8f} Flux sent to {}", entryFee, botadr);
+                        std::ostringstream oss;
+                        oss << "The fee is " << std::fixed << std::setprecision(8) << entryFee
+                            << " Flux sent to " << botadr;
+                        std::string msg = oss.str();
                         sendTell(playerid, msg);
                         msg = "Send the payment, copy the <txid>, wait 2-3 minutes for it to confirm and then re-join";
                         sendTell(playerid, msg);
@@ -584,8 +589,12 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                                 self->validateFluxFee(playerid, txid, txn, [this, playerid, txid](FluxResult result) {
                                     std::cout << "Received result for player address: " << result.vin_address << std::endl;
                                     if (result.paid_flux != entryFee) {
-                                        sendTell(playerid, fmt::format("The entry fee is {:.8f} Flux, your txid is for {:.8f} Flux",
-                                            entryFee, result.paid_flux));
+                                        std::ostringstream oss;
+                                        oss << "The entry fee is " << std::fixed << std::setprecision(8) << entryFee
+                                            << " Flux, your txid is for " << std::fixed << std::setprecision(8) << result.paid_flux
+                                            << " Flux";
+                                        std::string msg = oss.str();
+                                        sendTell(playerid, msg);
                                     } else {
                                         sendTell(playerid, "Your entry has been accepted, you will receive an invite");
                                         std::cout << "Fee Paid " << result.paid_flux << " pot " << result.pot_flux << std::endl;
@@ -607,7 +616,9 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                         std::string msg = "No player adr, use join <txid> to capture txid details";
                         sendTell(playerid, msg);
                     } else {
-                        std::string pot_str = fmt::format("{:.8f}", player_pot);
+                        std::ostringstream oss;
+                        oss << std::fixed << std::setprecision(8) <<  player_pot;
+                        std::string pot_str = oss.str();
                         std::string url_txns = "[{\"txid\":\"" + player_txid + "\",\"vout\":" + std::to_string(player_vout) + "}]";
                         std::string url_adrs = "{\"" + player_adr + "\":" + pot_str +"}";
                         std::string encoded_url = "transactions=" + url_encode(url_txns)+"&"+"addresses=" + url_encode(url_adrs);
