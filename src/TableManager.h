@@ -3,18 +3,24 @@
 
 #include "Table.h"
 
+class TournamentDirector; // Forward declaration
+
 class TableManager {
 public:
-    void addTable(Table table);
-    Table getTable(uint32_t id);
-    void removeTable(uint32_t id);
+    Table& addTable(TournamentDirector* mytd, const std::string& name, const std::string& watcher);
+    uint32_t getNewSuffix();
+    std::optional<Table&> getTable(size_t id);
+    void removeTable(size_t id);
+    void removeTable(const Table& t);
     std::vector<Table> getTables();
-    void updateState(uint32_t id, TableState newState);
-    void setStateChangeCallback(uint32_t id, std::function<void(TableState)> callback);
-
+    std::optional<size_t> findTableByType(const TableType type);
+    std::optional<size_t> findTableByName(const std::string& name);
+    std::optional<size_t> findTableByGameId(uint32_t gameId);
+    void updateState(Table table, TableState newState);
+    void setStateChangeCallback(std::function<void(Table, const TableState&)> callback);
 private:
     std::map<uint32_t, Table> tables;
-    std::map<uint32_t, std::function <void(TableState)>> stateChangeCallbacks;
+    std::function<void(Table, const TableState&)> stateChangeCallback;
 };
 
 #endif  // TABLEMANAGER_H

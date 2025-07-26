@@ -3,26 +3,30 @@
 
 #include "TableState.h"
 #include "Player.h"
-#include "TournamentDirector.h"
 #include <vector>
 
-struct TableInfo {
-    uint32_t game_id;
-    std::string name;
-    std::string watcher;
-    bool watch_started;
-    bool left_table;
+//class TournamentDirector; // Forward declaration
+
+enum TableType {
+    Final = 1,
+    Qualifier = 2
 };
 
-struct TableInfoState {
-    TableInfo info;
-    std::vector<Player> invite;
-    TableInfoState() : info(), invite() {}
+struct TableInfo {
+    uint32_t game_id = 0;
+    std::string name;
+    std::string watcher;
+    TableType type;
 };
 
 struct Table {
-    TableInfoState state;
-    TournamentDirector* mytd = nullptr;
+    TableState state = TableState::Idle;
+    int num_players = 0;
+    bool watch_started = false;
+    bool left_table = false;
+    TableInfo info;
+    std::vector<Player> invite;
+//    TournamentDirector* mytd = nullptr;
 };
 
 #endif  // TABLE_H

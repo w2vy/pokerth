@@ -27,12 +27,19 @@ INCLUDEPATH += /usr/local/include
 
 # Input
 HEADERS += \
+		src/Table.h \
+		src/TableManager.h \
+		src/TournamentDirector.h \
+		src/WatcherBot.h \
 		src/game_defs.h \
 		src/net/netpacket.h \
 		src/third_party/protobuf/pokerth.pb.h
 
 SOURCES += \
 		src/pokerbot.cpp \
+		src/Table.cpp \
+		src/TableManager.cpp \
+		src/TournamentDirector.cpp \
 		src/net/common/netpacket.cpp \
 		src/third_party/protobuf/pokerth.pb.cc
 

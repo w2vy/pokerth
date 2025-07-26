@@ -1,5 +1,6 @@
 #ifndef PLAYER_H
 #define PLAYER_H
+#include <cstdint>
 
 struct Player {
     uint32_t player_id;
