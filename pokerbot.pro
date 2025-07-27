@@ -22,7 +22,6 @@ INCLUDEPATH += . \
 DEPENDPATH += . \
 		src
 
-INCLUDEPATH += /usr/include/fmt
 INCLUDEPATH += /usr/local/include
 
 # Input
@@ -40,6 +39,7 @@ SOURCES += \
 		src/Table.cpp \
 		src/TableManager.cpp \
 		src/TournamentDirector.cpp \
+		src/WatcherBot.cpp \
 		src/net/common/netpacket.cpp \
 		src/third_party/protobuf/pokerth.pb.cc
 
@@ -93,12 +93,12 @@ unix : !mac {
 	LIBS += $$BOOST_LIBS
 	LIBS += -lprotobuf -lgsasl -lgcrypt -lidn
 	LIBS += -lssl -lcrypto
-	LIBS += -lboost_json -lfmt
+	LIBS += -lboost_json
 	LIB_DIRS += /usr/local/lib
 
 	# Enable C++17 (required for Boost.JSON)
-	#CONFIG += c++17
-
+	CONFIG += c++17
+	
 	#### INSTALL ####
 
 	binary.path += $${PREFIX}/bin/

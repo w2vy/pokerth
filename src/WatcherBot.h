@@ -1,5 +1,6 @@
 #pragma once
 
+#include "PokerClient.h"
 #include "Table.h"
 #include "TableManager.h"
 

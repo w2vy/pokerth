@@ -21,8 +21,8 @@ namespace po = boost::program_options;
 //#include "fluxsign.h"
 #include "Table.h"
 #include "TableManager.h"
-#include "TournamentDirector.h"
 #include "WatcherBot.h"
+#include "TournamentDirector.h"
 
 TableManager tourneyManager;
 
