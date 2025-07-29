@@ -1,17 +1,16 @@
 #ifndef TABLEMANAGER_H
 #define TABLEMANAGER_H
 
+#include <map>
 #include <optional>
 #include <functional>
 #include "Table.h"
 
-class TournamentDirector; // Forward declaration
-
 class TableManager {
 public:
-    Table& addTable(TournamentDirector* mytd, const std::string& name, const std::string& watcher);
+    Table& addTable(const std::string& name, const std::string& watcher);
     uint32_t getNewSuffix();
-    std::optional<Table&> getTable(size_t id);
+    std::optional<Table> getTable(size_t id);
     void removeTable(size_t id);
     void removeTable(const Table& t);
     std::vector<Table> getTables();

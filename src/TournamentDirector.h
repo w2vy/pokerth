@@ -1,12 +1,12 @@
 #pragma once
 
-#include "PokerClient.h"
 #include "transaction_fetcher.hpp"
 #include <regex>
 #include <functional>
 #include <string>
 #include <iomanip>
 #include <sstream>
+#include "PokerClient.h"
 
 enum TourneyType {
     NoTourney = 0,
@@ -14,6 +14,9 @@ enum TourneyType {
     TwoRounds = 2
 };
 
+class TableManager; // Forward references
+class WatcherBot;
+struct Table;
 
 class TournamentDirector : public PokerClient {
     struct FluxResult {

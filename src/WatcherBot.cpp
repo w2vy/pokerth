@@ -4,13 +4,14 @@
 
 #include <optional>
 
-//std::string printableSessionId(const std::string& sessionId);
-//std::string printableErrorReason(ErrorMessage_ErrorReason cause);
+std::string printableSessionId(const std::string& sessionId);
+std::string printableErrorReason(ErrorMessage_ErrorReason cause);
 
 class WatcherBot : public PokerClient {
 public:
-    WatcherBot(boost::asio::io_context& io, const po::variables_map& vm, Table *table) : PokerClient(io, vm) {
+    WatcherBot(boost::asio::io_context& io, const po::variables_map& vm, Table *table, TableManager tourneyManager) : PokerClient(io, vm) {
         watchTable = table;
+        tourneyManager_ = tourneyManager;
         std::cout << watchTable->info.watcher << ": Watch " << watchTable->info.name << std::endl;
     }
 
@@ -234,11 +235,14 @@ public:
                 std::string gname = newGame.gameinfo().gamename();
                 std::cout << "Game " << gname << " (" << gameid << ") just started!" << std::endl;
                 std::cout << "watchTable Game " << watchTable->info.name << " " << watchTable->info.game_id << std::endl;
-                std::optional<size_t>table_num = tourneyManager.findTableByGameId(gameid);
+                std::optional<size_t>table_num = tourneyManager_.findTableByGameId(gameid);
                 if (table_num.has_value()) {
-                    Table *t = tourneyManager.getTable(table_num.value());
+                    std::optional<Table> t = tourneyManager_.getTable(table_num.value());
                     int gid = 0;
-                    if (t) gid = t->info.game_id;
+                    if(t.has_value()) {
+                        Table table = t.value();
+                        gid = table.info.game_id;
+                    }
                     std::cout << "findTable " << *table_num << " game id " << gid << std::endl;
                 } else std::cout << "No table for Game " << gameid << std::endl;
             
@@ -307,7 +311,7 @@ public:
                             info.mutable_playerinforequestmessage()->add_playerid(player_id);
                             send_message(info);
                         }
-                        tourneyManager.updateState(watchTable, TableState::Playing);
+                        tourneyManager_.updateState(watchTable, TableState::Playing);
                     }
                 }
                 break;
@@ -370,7 +374,7 @@ public:
                     Player RunnerUp = {second->player_id, "", second->name, 0, 0, 0, 0};
                     watchTable->invite.push_back(RunnerUp);
                     Players.clear(); // Give winner all txids
-                    tourneyManager.updateState(watchTable, TableState::Finished);
+                    tourneyManager_.updateState(watchTable, TableState::Finished);
                 }
                 break;
             }
@@ -497,6 +501,7 @@ public:
 
 private:
     Table *watchTable;
+    TableManager tourneyManager_;
     std::unordered_map<int, Player> Players;
     std::int32_t start_money;
 

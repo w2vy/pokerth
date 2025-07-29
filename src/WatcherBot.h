@@ -7,8 +7,10 @@
 #include <optional>
 
 class WatcherBot : public PokerClient {
+    
 public:
-    WatcherBot(boost::asio::io_context& io, const po::variables_map& vm, Table *table) : PokerClient(io, vm);
+    WatcherBot(boost::asio::io_context& io, const po::variables_map& vm, Table *table, TableManager tourneyManager);
+    void handle_message(const std::vector<char>& data) override;
     std::string getNetPlayerState(uint32_t state);
     std::string getNetGameState(NetGameState state);
     void addPlayer(uint32_t player_id);
@@ -19,9 +21,8 @@ public:
     void setPlayerStackWon(uint32_t player_id, int winnings);
     void setPlayersStartingStack(void);
     void setPlayerHand(uint32_t player_id, int hand);
-    void inviteGame(uint32_t gameid, uint32_t player_id) {
+    void inviteGame(uint32_t gameid, uint32_t player_id);
     void startGame(uint32_t gameid);
-    void handle_message(const std::vector<char>& data) override;
 
 private:
     Table *watchTable;
@@ -137,4 +138,3 @@ private:
         return {first, second};
     }
 };
-

@@ -1,6 +1,6 @@
 #include "TableManager.h"
 
-Table& TableManager::addTable(TournamentDirector* mytd, const std::string& name, const std::string& watcher) {
+Table& TableManager::addTable(const std::string& name, const std::string& watcher) {
     size_t id = tables.size();
     Table table;
     uint32_t suffix_id = getNewSuffix();
@@ -20,7 +20,7 @@ uint32_t TableManager::getNewSuffix() {
     return suffix_id++;
 }
 
-std::optional<Table&> TableManager::getTable(size_t id) {
+std::optional<Table> TableManager::getTable(size_t id) {
     auto it = tables.find(id);
     if (it != tables.end()) {
         return it->second;

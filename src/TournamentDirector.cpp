@@ -1,11 +1,14 @@
 #include <sstream>
 #include <string>
 #include <iomanip>
+#include "TournamentDirector.h"
 #include "TableManager.h"
 #include "PokerClient.h"
 #include "WatcherBot.h"
 #include "Table.h"
-#include "TournamentDirector.h"
+
+std::string printableSessionId(const std::string& sessionId);
+std::string printableErrorReason(ErrorMessage_ErrorReason cause);
 
 std::string url_encode(const std::string& value) {
     std::ostringstream escaped;
@@ -274,7 +277,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
         case PokerTHMessage_PokerTHMessageType_Type_GameListPlayerJoinedMessage: {
             const GameListPlayerJoinedMessage joined = msg.gamelistplayerjoinedmessage();
             std::optional<size_t> table_num = tourneyManager_.findTableByGameId(joined.gameid());
-            std::optional<Table&> t = tourneyManager_.getTable(table_num.value());
+            std::optional<Table> t = tourneyManager_.getTable(table_num.value());
             if (t.has_value()) { // This is a game we care about
                 Table table = t.value();
                 table.num_players++;
@@ -325,7 +328,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                 }
                 if (chat.chattext() == "table") {
                     std::cout << "Create Game MyTest" << std::endl;
-                    Table table = tourneyManager_.addTable(this, "Flux Table", "WatchBot");
+                    Table table = tourneyManager_.addTable("Flux Table", "WatchBot");
                     createGame(table.info.name, "", NetGameInfo_NetGameType_registeredOnlyGame);
                 }
                 if (chat.chattext().compare(0, 6, "start ") == 0) {
@@ -477,7 +480,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                         }
                         n++;
                         std::cout << "Create " << gameName << std::endl;
-                        Table table = tourneyManager_.addTable(this, gameName, "WatchBot");
+                        Table table = tourneyManager_.addTable(gameName, "WatchBot");
                         if (activeTourney == OneRound) table.info.type = Final;
                         else table.info.type = Qualifier;
                         std::cout << "Create table " << table.info.name << " with " << np << " Players" << std::endl;

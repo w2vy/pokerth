@@ -35,11 +35,10 @@ HEADERS += \
 		src/third_party/protobuf/pokerth.pb.h
 
 SOURCES += \
-		src/pokerbot.cpp \
-		src/Table.cpp \
 		src/TableManager.cpp \
 		src/TournamentDirector.cpp \
 		src/WatcherBot.cpp \
+		src/pokerbot.cpp \
 		src/net/common/netpacket.cpp \
 		src/third_party/protobuf/pokerth.pb.cc
 
@@ -91,7 +90,7 @@ unix : !mac {
 	kFreeBSD = $$find(UNAME, "kFreeBSD")
 
 	LIBS += $$BOOST_LIBS
-	LIBS += -lprotobuf -lgsasl -lgcrypt -lidn
+	LIBS += -lprotobuf -lgsasl -lidn
 	LIBS += -lssl -lcrypto
 	LIBS += -lboost_json
 	LIB_DIRS += /usr/local/lib
