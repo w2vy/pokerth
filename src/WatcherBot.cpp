@@ -1,6 +1,7 @@
 #include "PokerClient.h"
 #include "Table.h"
 #include "TableManager.h"
+#include "WatcherBot.h"
 
 #include <optional>
 
@@ -9,7 +10,7 @@ std::string printableErrorReason(ErrorMessage_ErrorReason cause);
 
 class WatcherBot : public PokerClient {
 public:
-    WatcherBot(boost::asio::io_context& io, const po::variables_map& vm, Table *table, TableManager tourneyManager) : PokerClient(io, vm) {
+    WatcherBot(boost::asio::io_context& io, const po::variables_map& vm, Table table, TableManager tourneyManager) : PokerClient(io, vm) {
         watchTable = table;
         tourneyManager_ = tourneyManager;
         std::cout << watchTable->info.watcher << ": Watch " << watchTable->info.name << std::endl;
@@ -235,17 +236,12 @@ public:
                 std::string gname = newGame.gameinfo().gamename();
                 std::cout << "Game " << gname << " (" << gameid << ") just started!" << std::endl;
                 std::cout << "watchTable Game " << watchTable->info.name << " " << watchTable->info.game_id << std::endl;
-                std::optional<size_t>table_num = tourneyManager_.findTableByGameId(gameid);
-                if (table_num.has_value()) {
-                    std::optional<Table> t = tourneyManager_.getTable(table_num.value());
-                    int gid = 0;
-                    if(t.has_value()) {
-                        Table table = t.value();
-                        gid = table.info.game_id;
-                    }
-                    std::cout << "findTable " << *table_num << " game id " << gid << std::endl;
+                std::optional<Table> t = tourneyManager_.findTableByGameId(gameid);
+                int gid = 0;
+                if(t.has_value()) {
+                    Table table = t.value();
+                    gid = table.info.game_id;
                 } else std::cout << "No table for Game " << gameid << std::endl;
-            
                 if (watchTable->info.game_id == gameid && gname == watchTable->info.name) {
                     std::cout << "Found My Game " << watchTable->info.name << std::endl;
                     //watchTable->info.game_id = gameid;
@@ -498,9 +494,9 @@ public:
                 break;
         }
 }
-
+#if 0
 private:
-    Table *watchTable;
+    Table watchTable;
     TableManager tourneyManager_;
     std::unordered_map<int, Player> Players;
     std::int32_t start_money;
@@ -615,3 +611,4 @@ private:
     }
 };
 
+#endif

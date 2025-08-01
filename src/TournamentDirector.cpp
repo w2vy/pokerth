@@ -1,11 +1,12 @@
 #include <sstream>
 #include <string>
 #include <iomanip>
-#include "TournamentDirector.h"
+//#include "TournamentDirector.h"
 #include "TableManager.h"
 #include "PokerClient.h"
 #include "WatcherBot.h"
 #include "Table.h"
+#include "TournamentDirector.h"
 
 std::string printableSessionId(const std::string& sessionId);
 std::string printableErrorReason(ErrorMessage_ErrorReason cause);
@@ -132,8 +133,7 @@ void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& t
         << " Flux Add to Pot: " << std::fixed << std::setprecision(8) << pot
         << " Flux, vout " << vout_index;
 
-    std::string msg = oss.str();
-    sendTell(playerid, msg);
+    sendTell(playerid, oss.str());
 
     // ⬇️ Return values via callback
     on_result(FluxResult{vin_addr, paid, pot, txid, vout_index});
@@ -232,8 +232,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                 int gameid = ack.gameid();
                 std::string game_name = ack.gameinfo().gamename();
                 std::cout << "JoinGame Ack TD " << gameid << " Table " << game_name << std::endl;
-                std::optional<size_t> table_num = tourneyManager_.findTableByName(game_name);
-                std::optional<Table>t = tourneyManager_.getTable(table_num.value());
+                std::optional<Table>t = tourneyManager_.findTableByName(game_name);
                 if (t.has_value()) { // We have a table with that name
                     Table table = t.value();
                     std::cout << "JoinGameAck TD " << game_name << " id " << gameid << " was " << table.info.game_id << std::endl;
@@ -276,8 +275,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
         }
         case PokerTHMessage_PokerTHMessageType_Type_GameListPlayerJoinedMessage: {
             const GameListPlayerJoinedMessage joined = msg.gamelistplayerjoinedmessage();
-            std::optional<size_t> table_num = tourneyManager_.findTableByGameId(joined.gameid());
-            std::optional<Table> t = tourneyManager_.getTable(table_num.value());
+            std::optional<Table> t = tourneyManager_.findTableByGameId(joined.gameid());
             if (t.has_value()) { // This is a game we care about
                 Table table = t.value();
                 table.num_players++;
@@ -296,9 +294,8 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
         case PokerTHMessage_PokerTHMessageType_Type_GameListUpdateMessage: {
             const GameListUpdateMessage update = msg.gamelistupdatemessage();
             uint32_t gameid = update.gameid();
-            std::optional<size_t> table_num = tourneyManager_.findTableByGameId(gameid);
             std::cout << "Game Update " << gameid << std::endl;
-            std::optional<Table> t = tourneyManager_.getTable(table_num.value());
+            std::optional<Table> t = tourneyManager_.findTableByGameId(gameid);
             if (t.has_value()) { // This is a game we care about
                 Table table = t.value();
                 std::cout << table.info.name << " Game Update " << update.gamemode() << std::endl;
@@ -701,7 +698,7 @@ void TournamentDirector::create_and_run_watcher_bot(boost::asio::io_context& io,
     const std::string& host = vm["host"].as<std::string>();
     const int& port = vm["port"].as<int>();
     std::string game_name = vm["game-name"].as<std::string>();
-    auto bot = std::make_shared<WatcherBot>(io, vm, wtable);
+    auto bot = std::make_shared<WatcherBot>(io, vm, wtable, tourneyManager_);
 
     tcp::resolver resolver(io);
     auto endpoints = resolver.resolve(host, std::to_string(port));

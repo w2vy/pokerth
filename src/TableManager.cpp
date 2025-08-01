@@ -20,10 +20,10 @@ uint32_t TableManager::getNewSuffix() {
     return suffix_id++;
 }
 
-std::optional<Table> TableManager::getTable(size_t id) {
+std::optional<Table&> TableManager::getTable(size_t id) {
     auto it = tables.find(id);
     if (it != tables.end()) {
-        return it->second;
+        return tables[id];
     }
     return std::nullopt;
 }
@@ -48,28 +48,28 @@ std::vector<Table> TableManager::getTables() { // Read Only
     return result;
 }
 
-std::optional<size_t> TableManager::findTableByType(const TableType type) {
+std::optional<Table&> TableManager::findTableByType(const TableType type) {
     for (const auto& [id, table] : tables) {
         if (table.info.type == type) {
-            return id;
+            return tables[id];
         }
     }
     return std::nullopt;
 }
 
-std::optional<size_t> TableManager::findTableByName(const std::string& name) {
+std::optional<Table&> TableManager::findTableByName(const std::string& name) {
     for (const auto& [id, table] : tables) {
         if (table.info.name == name) {
-            return id;
+            return tables[id];
         }
     }
     return std::nullopt;
 }
 
-std::optional<size_t> TableManager::findTableByGameId(uint32_t gameId) {
+std::optional<Table&> TableManager::findTableByGameId(uint32_t gameId) {
     for (const auto& [id, table] : tables) {
         if (table.info.game_id == gameId) {
-            return id;
+            return tables[id];
         }
     }
     return std::nullopt;
