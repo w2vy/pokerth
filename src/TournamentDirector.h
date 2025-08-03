@@ -1,4 +1,5 @@
-#pragma once
+#ifndef TOURNAMENTDIRECTOR_H
+#define TOURNAMENTDIRECTOR_H
 
 #include "transaction_fetcher.hpp"
 #include <regex>
@@ -86,3 +87,4 @@ private:
         return -1;
     }
 };
+#endif

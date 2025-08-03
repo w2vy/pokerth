@@ -81,22 +81,21 @@ int safe_stoi(const std::string& str, int error_val) {
     }
 }
 
-void TourneyStateMachine(Table table, TableState newState) {
+void TourneyStateMachine(TournamentDirector* mytd, Table table, TableState newState) {
     std::cout << "Table[" << table.info.name << ", " << table.info.type << "] changed state from " << stateName(table.state) << " to " << stateName(newState) << std::endl;
     if (table.info.type == Qualifier) {
         bool hasFinalTable = false;
         Table finalTable;
-        std::optional<size_t> table_num = tourneyManager.findTableByType(Final);
-        if (table_num.has_value()) {
-            std::optional<Table> t = tourneyManager.getTable(table_num.value());
-            if (t.has_value()) {
-                hasFinalTable = true;
-                finalTable = t.value();
-            }
+        try {
+            finalTable = tourneyManager.findTableByType(Final);
+            hasFinalTable = true;
+        } catch (const std::out_of_range& e) {
+            std::cerr << "Error: " << e.what() << std::endl;
         }
         if (!hasFinalTable && table.state == TableState::Playing) { // No final table created yet, create once we have a game Playing
-            finalTable = tourneyManager.addTable(table.mytd, "Flux Final", "WatchBot");
+            finalTable = tourneyManager.addTable("Flux Final", "WatchBot");
             finalTable.info.type = Final;
+            hasFinalTable = true;
         }
         if (newState == TableState::Playing) {
             table.invite.clear(); // We're playing, no more invites
@@ -119,7 +118,7 @@ void TourneyStateMachine(Table table, TableState newState) {
             if (create_final) {
                 // create game, invite players, etc (InvitePlayerToGameMessage)
                 std::cout << "Create Final Game" << std::endl;
-                finalTable.mytd->createGame(finalTable.info.name, "", NetGameInfo_NetGameType_inviteOnlyGame, finalTable.invite.size());
+                mytd->createGame(finalTable.info.name, "", NetGameInfo_NetGameType_inviteOnlyGame, finalTable.invite.size());
             }
         }
         if (newState == TableState::Closed) {        }
@@ -129,7 +128,7 @@ void TourneyStateMachine(Table table, TableState newState) {
         if (table.invite.size() == 2) {
             std::string shout = "Congratulations to the winners of " + table.info.name + ": #1 - " + table.invite.at(0).name + " #2 - " + table.invite.at(1).name;
             std::cout << shout << std::endl;
-            table.mytd->sendLobby(shout);
+            mytd->sendLobby(shout);
         }
         table.invite.clear();
         tourneyManager.removeTable(table);
@@ -149,7 +148,7 @@ void TourneyStateMachine(Table table, TableState newState) {
                 std::cout << "Start Final " << finalTable.info.name << std::endl;
                 for (const Player& player : finalTable.invite) { // This should run until all players have joined or game is started (manually)
                     std::cout << "Invite " << player.name << " <===========================    INVITE " << std::endl;
-                    finalTable.mytd->inviteGame(finalTable.info.game_id, player.player_id);
+                    mytd->inviteGame(finalTable.info.game_id, player.player_id);
                 }
             }
         }
@@ -162,12 +161,12 @@ void TourneyStateMachine(Table table, TableState newState) {
             if (table.invite.size() == 1) {
                 std::string shout = "Congratulations to the winner of " + table.info.name + ": " + table.invite.at(0).name;
                 std::cout << shout << std::endl;
-                table.mytd->sendLobby(shout);
+                mytd->sendLobby(shout);
             }
             if (table.invite.size() == 2) {
                 std::string shout = "Congratulations to the winners of " + table.info.name + ": #1 - " + table.invite.at(0).name + " #2 - " + table.invite.at(1).name;
                 std::cout << shout << std::endl;
-                table.mytd->sendLobby(shout);
+                mytd->sendLobby(shout);
             }
             // Send winner(s) prize here?
             table.invite.clear();
@@ -210,10 +209,10 @@ int main(int argc, char* argv[]) {
 
     boost::asio::io_context io;
 
-    if (privKey.size() == 0) {
-        std::cerr << "No private key defined --privKey missing!" << std::endl;
-        return -1;
-    }
+    // if (privKey.size() == 0) {
+    //     std::cerr << "No private key defined --privKey missing!" << std::endl;
+    //     return -1;
+    // }
     //fluxsignStart();
     //fluxsignAddKey(privKey);
 

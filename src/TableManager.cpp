@@ -1,4 +1,6 @@
-#include "TableManager.h"
+#include "TableManagerHelper.cpp"
+
+#include <stdexcept>
 
 Table& TableManager::addTable(const std::string& name, const std::string& watcher) {
     size_t id = tables.size();
@@ -20,12 +22,39 @@ uint32_t TableManager::getNewSuffix() {
     return suffix_id++;
 }
 
-std::optional<Table&> TableManager::getTable(size_t id) {
+Table& TableManager::getTable(size_t id) {
     auto it = tables.find(id);
-    if (it != tables.end()) {
-        return tables[id];
+    if (it == tables.end()) {
+        throw std::out_of_range("Table not found");
     }
-    return std::nullopt;
+    return it->second;
+}
+
+Table& TableManager::findTableByType(const TableType type) {
+    for (auto& [id, table] : tables) {
+        if (table.info.type == type) {
+            return table;
+        }
+    }
+    throw std::out_of_range("Table not found");
+}
+
+Table& TableManager::findTableByName(const std::string& name) {
+    for (auto& [id, table] : tables) {
+        if (table.info.name == name) {
+            return table;
+        }
+    }
+    throw std::out_of_range("Table not found");
+}
+
+Table& TableManager::findTableByGameId(uint32_t gameId) {
+    for (auto& [id, table] : tables) {
+        if (table.info.game_id == gameId) {
+            return table;
+        }
+    }
+    throw std::out_of_range("Table not found");
 }
 
 void TableManager::removeTable(size_t id) {
@@ -46,44 +75,4 @@ std::vector<Table> TableManager::getTables() { // Read Only
         result.push_back(table);
     }
     return result;
-}
-
-std::optional<Table&> TableManager::findTableByType(const TableType type) {
-    for (const auto& [id, table] : tables) {
-        if (table.info.type == type) {
-            return tables[id];
-        }
-    }
-    return std::nullopt;
-}
-
-std::optional<Table&> TableManager::findTableByName(const std::string& name) {
-    for (const auto& [id, table] : tables) {
-        if (table.info.name == name) {
-            return tables[id];
-        }
-    }
-    return std::nullopt;
-}
-
-std::optional<Table&> TableManager::findTableByGameId(uint32_t gameId) {
-    for (const auto& [id, table] : tables) {
-        if (table.info.game_id == gameId) {
-            return tables[id];
-        }
-    }
-    return std::nullopt;
-}
-
-void TableManager::updateState(Table table, TableState newState) {
-    if (table.state != newState) {
-       table.state = newState;
-        if (stateChangeCallback) {
-            stateChangeCallback(table, newState);
-        }
-    }
-}
-
-void TableManager::setStateChangeCallback(std::function<void(Table, const TableState&)> callback) {
-    stateChangeCallback = std::move(callback);
 }

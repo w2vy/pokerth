@@ -26,7 +26,6 @@ struct Table {
     bool left_table = false;
     TableInfo info;
     std::vector<Player> invite;
-//    TournamentDirector* mytd = nullptr;
 };
 
 #endif  // TABLE_H

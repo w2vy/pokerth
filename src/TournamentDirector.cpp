@@ -33,11 +33,10 @@ std::string url_encode(const std::string& value) {
 const int MaxTablePlayers = 10;
 
 TournamentDirector::TournamentDirector(boost::asio::io_context& io, const boost::program_options::variables_map& vm, TableManager tourneyManager)
-    : PokerClient(io, vm),
+    : PokerClient(io, vm), tourneyManager_(tourneyManager),
     ssl_ctx_(boost::asio::ssl::context::sslv23_client) {
     ssl_ctx_.set_verify_mode(boost::asio::ssl::verify_peer);
     ssl_ctx_.set_default_verify_paths();  // Or load specific CA bundle if needed
-    tourneyManager_ = tourneyManager;
 }
 
 void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& txid, const Txn& txn, FluxResultCallback on_result) {
@@ -232,14 +231,15 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                 int gameid = ack.gameid();
                 std::string game_name = ack.gameinfo().gamename();
                 std::cout << "JoinGame Ack TD " << gameid << " Table " << game_name << std::endl;
-                std::optional<Table>t = tourneyManager_.findTableByName(game_name);
-                if (t.has_value()) { // We have a table with that name
-                    Table table = t.value();
+                try {
+                    Table table = tourneyManager_.findTableByName(game_name);
                     std::cout << "JoinGameAck TD " << game_name << " id " << gameid << " was " << table.info.game_id << std::endl;
                     if (table.info.game_id == 0) { // Game ID not set
                         std::cout << "Game ID set" << std::endl;
                         table.info.game_id = gameid;
                     }
+                } catch (const std::out_of_range& e) {
+                    std::cerr << "JoinGameAckMessage Error: " << e.what() << std::endl;
                 }
             }
             break;
@@ -275,9 +275,8 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
         }
         case PokerTHMessage_PokerTHMessageType_Type_GameListPlayerJoinedMessage: {
             const GameListPlayerJoinedMessage joined = msg.gamelistplayerjoinedmessage();
-            std::optional<Table> t = tourneyManager_.findTableByGameId(joined.gameid());
-            if (t.has_value()) { // This is a game we care about
-                Table table = t.value();
+            try {
+                Table table = tourneyManager_.findTableByGameId(joined.gameid());
                 table.num_players++;
                 std::cout << "TD Player for " << table.info.name << " (" << table.info.game_id << ") " + std::to_string(joined.playerid()) + ") has joined " << std::to_string(table.num_players) << " Players" << std::endl;
                 if (!table.watch_started) {
@@ -288,6 +287,8 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                     table.left_table = true;
                     leaveGame(table.info.game_id);
                 }
+            } catch (const std::out_of_range& e) {
+                std::cerr << "GameListPlayerJoinedMessage Error: " << e.what() << std::endl;
             }
             break;
         }
@@ -295,11 +296,12 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
             const GameListUpdateMessage update = msg.gamelistupdatemessage();
             uint32_t gameid = update.gameid();
             std::cout << "Game Update " << gameid << std::endl;
-            std::optional<Table> t = tourneyManager_.findTableByGameId(gameid);
-            if (t.has_value()) { // This is a game we care about
-                Table table = t.value();
+            try {
+                Table table = tourneyManager_.findTableByGameId(gameid);
                 std::cout << table.info.name << " Game Update " << update.gamemode() << std::endl;
-                if (update.gamemode() == netGameClosed) tourneyManager_.updateState(table, TableState::Closed);
+                if (update.gamemode() == netGameClosed) tourneyManager_.updateState(this, table, TableState::Closed);
+            } catch (const std::out_of_range& e) {
+                std::cerr << "GameListUpdateMessage Error: " << e.what() << std::endl;
             }
             break;
         }
@@ -332,13 +334,12 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                     size_t tbl = safe_stoi(chat.chattext().substr(6,chat.chattext().size()-6), -1);
                     std::cout << "Start Table" << std::endl;
                     if (tbl >= 1 && tbl <= 10) {
-                        std::optional<Table> t = tourneyManager_.getTable(tbl-1);
-                        if (t.has_value()) {
-                            Table table = t.value();
+                        try {
+                            Table table = tourneyManager_.getTable(tbl-1);
                             std::cout << "Start game " << table.info.game_id << " " << table.info.name << std::endl;
                             startGame(table.info.game_id);
-                        } else {
-                            std::cout << "Start Game Table " << tbl << " not found" << std::endl;
+                        } catch (const std::out_of_range& e) {
+                            std::cout << "Start Game Table " << tbl << " not found " << e.what() << std::endl;
                         }
                     } else {
                         std::cout << "Invalid start command: should be 'start #' where # is 1-10, received " + chat.chattext() << std::endl;
@@ -347,12 +348,11 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                 if (chat.chattext().compare(0, 6, "leave ") == 0) {
                     int tbl = safe_stoi(chat.chattext().substr(6,chat.chattext().size()-6), -1);
                     if (tbl >= 1 && tbl <= 10) {
-                        std::optional<Table> t = tourneyManager_.getTable(tbl-1);
-                        if (t.has_value()) {
-                            Table table = t.value();
+                        try {
+                            Table table = tourneyManager_.getTable(tbl-1);
                             leaveGame(table.info.game_id);
-                        } else {
-                            std::cout << "Start Game Table " << tbl << " not found" << std::endl;
+                        } catch (const std::out_of_range& e) {
+                            std::cout << "Start Game Table " << tbl << " not found " << e.what() << std::endl;
                         }
                     } else {
                         std::cout << "Invalid start command: should be 'start #' where # is 1-10, received " + chat.chattext() << std::endl;
@@ -698,7 +698,7 @@ void TournamentDirector::create_and_run_watcher_bot(boost::asio::io_context& io,
     const std::string& host = vm["host"].as<std::string>();
     const int& port = vm["port"].as<int>();
     std::string game_name = vm["game-name"].as<std::string>();
-    auto bot = std::make_shared<WatcherBot>(io, vm, wtable, tourneyManager_);
+    auto bot = std::make_shared<WatcherBot>(io, vm, wtable, this, tourneyManager_);
 
     tcp::resolver resolver(io);
     auto endpoints = resolver.resolve(host, std::to_string(port));
