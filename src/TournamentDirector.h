@@ -50,7 +50,7 @@ private:
     uint32_t maxRegistration;
     Table *activeTable;
     std::string prizeTxid = "";
-    std::unordered_map<int, std::string> registeredPlayers;
+    std::vector<std::pair<uint32_t, std::string>> registeredPlayers;
     int64_t prizeFlux = 0;
     int64_t entryFee = 0;
     std::string gameName = "";
