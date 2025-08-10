@@ -34,6 +34,7 @@ public:
     void validateFluxFee(uint32_t playerid, const std::string& txid, const Txn& txn, FluxResultCallback on_result);
     void handle_message(const std::vector<char>& data) override;
     void create_and_run_watcher_bot(boost::asio::io_context& io, const po::variables_map& vm, Table wtable);
+    void run_watcher_bots();
     void startGame(uint32_t gameid);
     void leaveGame(uint32_t gameid);
     void inviteGame(uint32_t gameid, uint32_t player_id);
@@ -43,6 +44,7 @@ public:
 private:
     TableManager tourneyManager_;
     std::unordered_map<int, std::shared_ptr<WatcherBot>> watchers_;
+    std::vector<std::shared_ptr<WatcherBot>> bots_;
     boost::asio::ssl::context ssl_ctx_;
     std::string botadr = "t1KbvgXPrJ1RuCzBr5FjsPZk7XUrswu99zu";
     TourneyType activeTourney = NoTourney;

@@ -17,6 +17,7 @@ struct TableInfo {
     std::string name;
     std::string watcher;
     TableType type;
+    int max_players = 10;
 };
 
 struct Table {

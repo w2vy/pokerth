@@ -5,18 +5,20 @@
 #include <unordered_map>
 
 enum class TableState {
-    Idle = 0,
-    Connecting = 1,
-    Registration = 2,
-    Playing = 3,
-    Finished = 4,
-    Closed = 5
+    Idle,
+    Connecting,
+    CreateGame,
+    Inviting,
+    Playing,
+    Finished,
+    Closed
 };
 
 const std::unordered_map<TableState, std::string> stateNameMap = {
     {TableState::Idle, "Idle"},
     {TableState::Connecting, "Connecting"},
-    {TableState::Registration, "Registration"},
+    {TableState::CreateGame, "CreateGame"},
+    {TableState::Inviting, "Inviting"},
     {TableState::Playing, "Playing"},
     {TableState::Finished, "Finished"},
     {TableState::Closed, "Closed"}

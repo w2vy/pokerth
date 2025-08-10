@@ -12,6 +12,7 @@ class WatcherBot : public PokerClient {
     
 public:
     WatcherBot(boost::asio::io_context& io, const po::variables_map& vm, Table& table, TournamentDirector* td, TableManager tourneyManager);
+    void start(void) override;
     void handle_message(const std::vector<char>& data) override;
     std::string getNetPlayerState(uint32_t state);
     std::string getNetGameState(NetGameState state);
@@ -23,13 +24,19 @@ public:
     void setPlayerStackWon(uint32_t player_id, int winnings);
     void setPlayersStartingStack(void);
     void setPlayerHand(uint32_t player_id, int hand);
-    void inviteGame(uint32_t gameid, uint32_t player_id);
     void startGame(uint32_t gameid);
+    void leaveGame(uint32_t gameid);
+    void watchGame(uint32_t gameid);
+    void inviteGame(uint32_t gameid, uint32_t player_id);
+    void createGame(std::string name, std::string password, NetGameInfo_NetGameType gameType, int nPlayers);
 
 private:
+    boost::asio::io_context& io_;
+    const po::variables_map& vm_;
     Table& watchTable_;
     TournamentDirector* mytd_;
     TableManager tourneyManager_;
+    uint32_t watcherBotID;
     std::unordered_map<int, Player> Players;
     std::int32_t start_money;
 
@@ -39,7 +46,18 @@ private:
     };
     
     // ------------------ Functions ------------------
-    
+    void invitePlayers() {
+        std::thread([this]() {
+            while (watchTable_.state == TableState::Inviting) {
+                for (auto& p : watchTable_.invite) {
+                    inviteGame(watchTable_.info.game_id, p.player_id);
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                }
+                std::this_thread::sleep_for(std::chrono::seconds(60));
+            }
+        }).detach();
+    }
+
     // Returns the player with the best hand in the group
     Player* GetBestPlayer(const std::vector<Player*>& players) {
         return *std::max_element(players.begin(), players.end(),

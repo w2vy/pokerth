@@ -8,6 +8,7 @@
 #include "WatcherBot.h"
 #include "Table.h"
 #include "TournamentDirector.h"
+#include <thread>
 
 std::string printableSessionId(const std::string& sessionId);
 std::string printableErrorReason(ErrorMessage_ErrorReason cause);
@@ -222,29 +223,29 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
             break;
         }
 
-        case PokerTHMessage_PokerTHMessageType_Type_JoinGameAckMessage: {
-            const JoinGameAckMessage ack = msg.joingameackmessage();
-            bool speculate = false;
-            if (ack.has_spectateonly()) {
-                speculate = ack.spectateonly();
-            }
-            if (ack.has_gameid() && ack.areyougameadmin() && !speculate) {
-                int gameid = ack.gameid();
-                std::string game_name = ack.gameinfo().gamename();
-                std::cout << "JoinGame Ack TD " << gameid << " Table " << game_name << std::endl;
-                try {
-                    Table table = tourneyManager_.findTableByName(game_name);
-                    std::cout << "JoinGameAck TD " << game_name << " id " << gameid << " was " << table.info.game_id << std::endl;
-                    if (table.info.game_id == 0) { // Game ID not set
-                        std::cout << "Game ID set" << std::endl;
-                        table.info.game_id = gameid;
-                    }
-                } catch (const std::out_of_range& e) {
-                    std::cerr << "JoinGameAckMessage Error: " << e.what() << std::endl;
-                }
-            }
-            break;
-        }
+        // case PokerTHMessage_PokerTHMessageType_Type_JoinGameAckMessage: {
+        //     const JoinGameAckMessage ack = msg.joingameackmessage();
+        //     bool speculate = false;
+        //     if (ack.has_spectateonly()) {
+        //         speculate = ack.spectateonly();
+        //     }
+        //     if (ack.has_gameid() && ack.areyougameadmin() && !speculate) {
+        //         int gameid = ack.gameid();
+        //         std::string game_name = ack.gameinfo().gamename();
+        //         std::cout << "JoinGame Ack TD " << gameid << " Table " << game_name << std::endl;
+        //         try {
+        //             Table table = tourneyManager_.findTableByName(game_name);
+        //             std::cout << "JoinGameAck TD " << game_name << " id " << gameid << " was " << table.info.game_id << std::endl;
+        //             if (table.info.game_id == 0) { // Game ID not set
+        //                 std::cout << "Game ID set" << std::endl;
+        //                 table.info.game_id = gameid;
+        //             }
+        //         } catch (const std::out_of_range& e) {
+        //             std::cerr << "JoinGameAckMessage Error: " << e.what() << std::endl;
+        //         }
+        //     }
+        //     break;
+        // }
 
         case PokerTHMessage_PokerTHMessageType_Type_JoinGameFailedMessage: {
             const JoinGameFailedMessage failed = msg.joingamefailedmessage();
@@ -274,25 +275,25 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
             }
             break;
         }
-        case PokerTHMessage_PokerTHMessageType_Type_GameListPlayerJoinedMessage: {
-            const GameListPlayerJoinedMessage joined = msg.gamelistplayerjoinedmessage();
-            try {
-                Table table = tourneyManager_.findTableByGameId(joined.gameid());
-                table.num_players++;
-                std::cout << "TD Player for " << table.info.name << " (" << table.info.game_id << ") " + std::to_string(joined.playerid()) + ") has joined " << std::to_string(table.num_players) << " Players" << std::endl;
-                if (!table.watch_started) {
-                    table.watch_started = true;
-                    create_and_run_watcher_bot(io_context_, vm_, table);
-                }
-                if (table.num_players > 2 && !table.left_table) { // Should be 5
-                    table.left_table = true;
-                    leaveGame(table.info.game_id);
-                }
-            } catch (const std::out_of_range& e) {
-                std::cerr << "GameListPlayerJoinedMessage Error: " << e.what() << std::endl;
-            }
-            break;
-        }
+        // case PokerTHMessage_PokerTHMessageType_Type_GameListPlayerJoinedMessage: { // Move to WatcherBot
+        //     const GameListPlayerJoinedMessage joined = msg.gamelistplayerjoinedmessage();
+        //     try {
+        //         Table table = tourneyManager_.findTableByGameId(joined.gameid());
+        //         table.num_players++;
+        //         std::cout << "TD Player for " << table.info.name << " (" << table.info.game_id << ") " + std::to_string(joined.playerid()) + ") has joined " << std::to_string(table.num_players) << " Players" << std::endl;
+        //         if (!table.watch_started) {
+        //             table.watch_started = true;
+        //             create_and_run_watcher_bot(io_context_, vm_, table);
+        //         }
+        //         if (table.num_players > 2 && !table.left_table) { // Should be 5
+        //             table.left_table = true;
+        //             leaveGame(table.info.game_id);
+        //         }
+        //     } catch (const std::out_of_range& e) {
+        //         std::cerr << "GameListPlayerJoinedMessage Error: " << e.what() << std::endl;
+        //     }
+        //     break;
+        // }
         case PokerTHMessage_PokerTHMessageType_Type_GameListUpdateMessage: {
             const GameListUpdateMessage update = msg.gamelistupdatemessage();
             uint32_t gameid = update.gameid();
@@ -497,9 +498,12 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                             }
                         }
                         nextRegistered += np;
-                        std::cout << "Create table " << table.info.name << " with " << np << " Players" << std::endl;
-                        createGame(table.info.name, "", NetGameInfo_NetGameType_inviteOnlyGame, np);
+                        table.info.max_players = np;
+                        std::cout << "Create bot " << table.info.name << " with " << np << " Players" << std::endl;
+                        //createGame(table.info.name, "", NetGameInfo_NetGameType_inviteOnlyGame, np);
+                        create_and_run_watcher_bot(io_context_, vm_, table);
                     }
+                    run_watcher_bots(); // Start async process running a bot every 30 sec
                 }
                 if (chat.chattext() == "join help") {
                     if (playerid == 0) {
@@ -729,6 +733,21 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
 }
 
 void TournamentDirector::create_and_run_watcher_bot(boost::asio::io_context& io, const po::variables_map& vm, Table wtable) {
+    auto bot = std::make_shared<WatcherBot>(io, vm, wtable, this, tourneyManager_);
+    bots_.push_back(bot);
+}
+
+void TournamentDirector::run_watcher_bots() {
+    std::thread([this]() {
+        for (auto& bot : bots_) {
+            bot->start();
+            std::this_thread::sleep_for(std::chrono::seconds(35)); // Need minimum os 30 Sec for next bot connect
+        }
+    }).detach();
+}
+
+#if 0
+void TournamentDirector::create_and_run_watcher_botX(boost::asio::io_context& io, const po::variables_map& vm, Table wtable) {
     const std::string& username = wtable.info.watcher;
     const std::string& password = vm["watcher-password"].as<std::string>();
     const std::string& server_password = vm["server-password"].as<std::string>();
@@ -751,6 +770,7 @@ void TournamentDirector::create_and_run_watcher_bot(boost::asio::io_context& io,
             }
         });
 }
+#endif
 
 void TournamentDirector::startGame(uint32_t gameid) {
     PokerTHMessage start;
