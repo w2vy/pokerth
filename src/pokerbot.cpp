@@ -81,8 +81,8 @@ int safe_stoi(const std::string& str, int error_val) {
     }
 }
 
-void TourneyStateMachine(TournamentDirector* mytd, Table table, TableState newState) {
-    std::cout << "Table[" << table.info.name << ", " << table.info.type << "] changed state from " << stateName(table.state) << " to " << stateName(newState) << std::endl;
+void TourneyStateMachine(TournamentDirector* mytd, Table& table, TableState newState) {
+    std::cout << "Table" << table.info.name << " (" << table.info.game_id << ") " << table.info.type << "] changed state from " << stateName(table.state) << " to " << stateName(newState) << std::endl;
     if (table.info.type == Qualifier) {
         bool hasFinalTable = false;
         Table finalTable;
@@ -98,6 +98,7 @@ void TourneyStateMachine(TournamentDirector* mytd, Table table, TableState newSt
             hasFinalTable = true;
         }
         if (newState == TableState::Playing) {
+            // Refund fee offered by players who never joined - or maybe better to have an external cron that refunds stale txid in wallet
             table.invite.clear(); // We're playing, no more invites
         }
         if (hasFinalTable && newState == TableState::Finished) {
@@ -123,6 +124,7 @@ void TourneyStateMachine(TournamentDirector* mytd, Table table, TableState newSt
         }
         if (newState == TableState::Closed) {        }
         if (newState == TableState::Playing) {
+            // No refund if they played the first round
             table.invite.clear(); // We're playing, no more invites
         }
         if (table.invite.size() == 2) {

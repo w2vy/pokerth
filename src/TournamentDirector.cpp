@@ -123,7 +123,7 @@ void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& t
         vout++;
     }
 
-    const auto fee_paid = vin_value - vout_value;
+    const int64_t fee_paid = vin_value - vout_value;
     const double paid = static_cast<double>(fee_paid) / 1e8;
     const double pot = static_cast<double>(pot_fee) / 1e8;
 
@@ -137,7 +137,7 @@ void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& t
     sendTell(playerid, oss.str());
 
     // ⬇️ Return values via callback
-    on_result(FluxResult{vin_addr, paid, pot, txid, vout_index});
+    on_result(FluxResult{vin_addr, fee_paid, pot_fee, txid, vout_index});
 }
 
 void TournamentDirector::handle_message(const std::vector<char>& data) {
@@ -259,11 +259,11 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
         }
 
         case PokerTHMessage_PokerTHMessageType_Type_GameListNewMessage: {
-            std::cout << "Received GameListNewMessage" << std::endl;
-            const GameListNewMessage& newGame = msg.gamelistnewmessage();
-            int gameid = newGame.has_gameid() ? newGame.gameid() : 0;
-            std::string gname = newGame.gameinfo().gamename();
-            std::cout << "Game " << gname << " (" << gameid << ") just started!" << std::endl;
+            //std::cout << "Received GameListNewMessage" << std::endl;
+            //const GameListNewMessage& newGame = msg.gamelistnewmessage();
+            //int gameid = newGame.has_gameid() ? newGame.gameid() : 0;
+            //std::string gname = newGame.gameinfo().gamename();
+            //std::cout << "TD: Game " << gname << " (" << gameid << ") just started!" << std::endl;
             break;
         }
         case PokerTHMessage_PokerTHMessageType_Type_EndOfGameMessage: {
@@ -401,6 +401,9 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                         txid = txid_str;
                         std::getline(iss >> std::ws, game_name);
                     }
+                    if (game_name.empty()) {
+                        game_name = "Table";
+                    }
 
                     // ✅ Use: game_fee, txid ("" if none), and game_name (may be empty)
                     std::cout << "Entry Fee: " << game_fee << "\n";
@@ -421,7 +424,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                     };
 
                     if (txid.empty()) {
-                        std::cout << "No txid provided. Proceeding without entry fee validation.\n";
+                        std::cout << "No txid provided. Proceeding without prize txid validation.\n";
                         openGame();  // No validation needed
                     } else {
                         std::cout << "Validating txid: " << txid << "\n";
@@ -461,7 +464,14 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                         sendTell(playerid, "Tourney is not open");
                         break;
                     }
+                    if (registeredPlayers.size() < 2) {
+                        std::ostringstream oss;
+                        oss << "There has to be a minimum of 2 players! There are " << registeredPlayers.size();
+                        sendTell(playerid, oss.str());
+                        break;
+                    }
                     registrationOpen = false;
+
                     // Shuffle the vector
                     std::random_device rd;
                     std::mt19937 g(rd());
@@ -483,7 +493,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                         }
                         n++;
                         std::cout << "Create " << gameName << std::endl;
-                        Table table = tourneyManager_.addTable(gameName, "WatchBot");
+                        Table& table = tourneyManager_.addTable(gameName, "WatchBot");
                         if (activeTourney == OneRound) table.info.type = Final;
                         else table.info.type = Qualifier;
                         int processed = 0;
@@ -491,8 +501,9 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                             size_t ndx = nextRegistered + processed;
                             if (ndx >= registeredPlayers.size()) break;
                             else {
-                                auto& [pid, txid] = registeredPlayers[ndx];
-                                Player rPlayer = {pid, txid, "", 0, 0, 0, 0};
+                                auto& [pid, entryFee] = registeredPlayers[ndx];
+                                std::cout << "Add Player " << pid << " txid " << entryFee.txid << std::endl;
+                                Player rPlayer = {pid, entryFee, "", 0, 0, 0, 0};
                                 table.invite.push_back(rPlayer);
                                 if (++processed >= np) break;
                             }
@@ -551,7 +562,9 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                             [&](const auto& entry) { return entry.first == playerid; });
 
                         if (!idExists) {
-                            registeredPlayers.emplace_back(playerid, "free");
+                            std::cout << "Adding player " << playerid << " to registration" << std::endl;
+                            FluxResult free = {"", 0, 0, "free", 0};
+                            registeredPlayers.emplace_back(playerid, free);
                             sendTell(playerid, "You have been entered into the tourney, you will receive an invite when play starts");
                         } else {
                             sendTell(playerid, "You are already have been entered into the tourney, you will receive an invite when play starts");
@@ -616,7 +629,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                                         bool idExists = std::any_of(registeredPlayers.begin(), registeredPlayers.end(),
                                                                     [&](const auto& entry) { return entry.first == playerid; });
                                         bool addrExists = std::any_of(registeredPlayers.begin(), registeredPlayers.end(),
-                                                                    [&](const auto& entry) { return entry.second == txid; });
+                                                                    [&](const auto& entry) { return entry.second.txid == txid; });
                                         if (idExists) {
                                             sendTell(playerid, "You have already entered, you will receive an invite");
                                         } else if (addrExists) {
@@ -624,7 +637,8 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                                             oss << "Your txid has been used by another player " << playerid << " use your own txid";
                                             sendTell(playerid, oss.str());
                                         } else {
-                                            registeredPlayers.emplace_back(playerid, txid);
+                                            std::cout << "Adding player " << playerid << " to registration and txid " << txid << std::endl;
+                                            registeredPlayers.emplace_back(playerid, result);
                                             sendTell(playerid, "Your entry has been accepted, you will receive an invite");
                                             std::cout << "Fee Paid " << result.paid_flux << " pot " << result.pot_flux << std::endl;
                                             std::cout << "There are " << registeredPlayers.size() << " registered" << std::endl;
@@ -709,7 +723,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                     std::remove_if(
                         registeredPlayers.begin(),
                         registeredPlayers.end(),
-                        [player_id](const std::pair<uint32_t, std::string>& entry) {
+                        [player_id](const std::pair<uint32_t, FluxResult>& entry) {
                             return entry.first == player_id;
                         }),
                     registeredPlayers.end());
@@ -732,7 +746,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
     }
 }
 
-void TournamentDirector::create_and_run_watcher_bot(boost::asio::io_context& io, const po::variables_map& vm, Table wtable) {
+void TournamentDirector::create_and_run_watcher_bot(boost::asio::io_context& io, const po::variables_map& vm, Table& wtable) {
     auto bot = std::make_shared<WatcherBot>(io, vm, wtable, this, tourneyManager_);
     bots_.push_back(bot);
 }

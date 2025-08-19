@@ -20,7 +20,6 @@ void WatcherBot::start(void) {
     const std::string& host = vm_["host"].as<std::string>();
     const int& port = vm_["port"].as<int>();
     std::string game_name = vm_["game-name"].as<std::string>();
-    auto bot = std::make_shared<WatcherBot>(io_, vm_, watchTable_, mytd_, tourneyManager_);
 
     tcp::resolver resolver(io_);
     auto endpoints = resolver.resolve(host, std::to_string(port));
@@ -28,17 +27,16 @@ void WatcherBot::start(void) {
     std::cout << "Start WatcherBot"  << std::endl;
     tourneyManager_.updateState(mytd_, watchTable_, TableState::Connecting);
 
-    boost::asio::async_connect(bot->socket(), endpoints,
-        [bot, username, password, server_password](boost::system::error_code ec, const tcp::endpoint&) {
+    boost::asio::async_connect(socket(), endpoints,
+        [this, username, password, server_password](boost::system::error_code ec, const tcp::endpoint&) {
             if (!ec) {
                 std::cout << "WatchBot connected successfully." << std::endl;
-                bot->do_read_header();
+                do_read_header();
             } else {
                 std::cerr << "WatchBot connection failed: " << ec.message() << std::endl;
             }
         });
 }
-
 
 std::string WatcherBot::getNetPlayerState(uint32_t state) {
     switch (state) {
@@ -76,7 +74,7 @@ std::string WatcherBot::getNetGameState(NetGameState state) {
 
 void WatcherBot::addPlayer(uint32_t player_id) {
     if (Players.find(player_id) == Players.end()) {
-        Players[player_id] = { player_id, "", "", start_money, 0, 0, 0 };
+        Players[player_id] = { player_id, {}, "", start_money, 0, 0, 0 };
     }
 }
 
@@ -157,6 +155,7 @@ void WatcherBot::setPlayerHand(uint32_t player_id, int hand) {
 
 void WatcherBot::inviteGame(uint32_t gameid, uint32_t player_id) {
     PokerTHMessage imsg;
+    std::cout << "inviteGame: " << gameid << " Player " << player_id << std::endl;
     imsg.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_InvitePlayerToGameMessage);
     InvitePlayerToGameMessage* invite = imsg.mutable_inviteplayertogamemessage();
     invite->set_gameid(gameid);
@@ -306,51 +305,33 @@ void WatcherBot::handle_message(const std::vector<char>& data) {
 
         case PokerTHMessage_PokerTHMessageType_Type_GameListPlayerJoinedMessage: {
             const GameListPlayerJoinedMessage joined = msg.gamelistplayerjoinedmessage();
-            try {
-                Table table = tourneyManager_.findTableByGameId(joined.gameid());
-                table.num_players++;
-                std::cout << "TD Player for " << table.info.name << " (" << table.info.game_id << ") " + std::to_string(joined.playerid()) + ") has joined " << std::to_string(table.num_players) << " Players" << std::endl;
-                // if (!table.watch_started) {
-                //     table.watch_started = true;
-                //     create_and_run_watcher_bot(io_context_, vm_, table);
-                // }
-                if (table.num_players > 2 && !table.left_table) { // Should be 5
-                    table.left_table = true;
-                    leaveGame(table.info.game_id); // start watching as a spectator when player leaves
+            uint32_t player_id = joined.playerid();
+            std::cout << "GameListPlayerJoinedMessage: GameID " << joined.gameid() << " Player " << player_id << std::endl;
+            if (joined.gameid() == watchTable_.info.game_id) { // Player joined our table
+                watchTable_.num_players++;
+                std::cout << "WB Player for " << watchTable_.info.name << " (" << watchTable_.info.game_id << ") " + std::to_string(joined.playerid()) + ") has joined " << std::to_string(watchTable_.num_players) << " Players" << std::endl;
+                auto it = std::find_if(watchTable_.invite.begin(), watchTable_.invite.end(),
+                       [&](const Player& p) { return p.player_id == player_id; });
+                if (it!= watchTable_.invite.end()) {
+                    watchTable_.invite.erase(it);
                 }
-            } catch (const std::out_of_range& e) {
-                std::cerr << "GameListPlayerJoinedMessage Error: " << e.what() << std::endl;
+                if (watchTable_.num_players > 2 && !watchTable_.left_table) { // Should be 5
+                    watchTable_.left_table = true;
+                    leaveGame(watchTable_.info.game_id); // start watching as a spectator when player leaves
+                }
             }
             break;
         }
 
         case PokerTHMessage_PokerTHMessageType_Type_GameListNewMessage: {
-            // When does this happen? Game Created or Play Starts?
-            std::cout << watchTable_.info.watcher << " Received GameListNewMessage" << std::endl;
             const GameListNewMessage& newGame = msg.gamelistnewmessage();
             uint32_t gameid = newGame.has_gameid() ? newGame.gameid() : 0;
             std::string gname = newGame.gameinfo().gamename();
-            std::cout << "Game " << gname << " (" << gameid << ") just started!" << std::endl;
+            std::cout << "WB Game " << gname << " (" << gameid << ") just started!" << std::endl;
             std::cout << "watchTable Game " << watchTable_.info.name << " " << watchTable_.info.game_id << std::endl;
-            // int gid = 0;
-            // try {
-            //     Table table = tourneyManager_.findTableByGameId(gameid);
-            //     gid = table.info.game_id;
-            // } catch (const std::out_of_range& e) {{
-            //     std::cerr << "GameListNewMessage Error: " << e.what() << std::endl;
-            //     std::cout << "No table for Game " << gameid << std::endl;
-            // }
+
             if (watchTable_.info.game_id == gameid && gname == watchTable_.info.name) {
                 std::cout << "Found My Game " << watchTable_.info.name << std::endl;
-                //watchTable_.info.game_id = gameid;
-
-            //     PokerTHMessage joinMsg;
-            //     joinMsg.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_JoinExistingGameMessage);
-            //     JoinExistingGameMessage* joinGame = joinMsg.mutable_joinexistinggamemessage();
-            //     joinGame->set_gameid(gameid);
-            //     joinGame->set_spectateonly(true);
-        
-            //     send_message(joinMsg);
             }
             break;
         }
@@ -378,18 +359,16 @@ void WatcherBot::handle_message(const std::vector<char>& data) {
                 } else {
                     if (ack.areyougameadmin()) {
                         std::cout << "JoinGame Ack WatcherBot " << gameid << " Table " << game_name << std::endl;
-                        try {
-                            Table table = tourneyManager_.findTableByName(game_name);
-                            std::cout << "JoinGameAck TD " << game_name << " id " << gameid << " was " << table.info.game_id << std::endl;
-                            if (table.info.game_id == 0) { // Game ID not set
-                                std::cout << "Game ID set" << std::endl;
-                                table.info.game_id = gameid;
+                        if (game_name == watchTable_.info.name && watchTable_.info.game_id == 0) {
+                            // Our gaame and gameid is not set
+                            std::cout << "JoinGameAck WB " << game_name << " id " << gameid << std::endl;
+                            std::cout << "Game ID set" << std::endl;
+                            watchTable_.info.game_id = gameid;
+                            if (watchTable_.state == TableState::CreateGame) {
                                 tourneyManager_.updateState(mytd_, watchTable_, TableState::Inviting);
                                 // create async thread to invite each player, until game starts or is gone
                                 invitePlayers();
                             }
-                        } catch (const std::out_of_range& e) {
-                            std::cerr << "JoinGameAckMessage Error: " << e.what() << std::endl;
                         }
                     }
                 }
@@ -493,9 +472,9 @@ void WatcherBot::handle_message(const std::vector<char>& data) {
 
                 auto [first, second] = find_winners();
                 // Set results so TD can see who advances
-                Player Winner = {first->player_id, "", first->name, 0, 0, 0, 0};
+                Player Winner = {first->player_id, {}, first->name, 0, 0, 0, 0};
                 watchTable_.invite.push_back(Winner);
-                Player RunnerUp = {second->player_id, "", second->name, 0, 0, 0, 0};
+                Player RunnerUp = {second->player_id, {}, second->name, 0, 0, 0, 0};
                 watchTable_.invite.push_back(RunnerUp);
                 Players.clear(); // Give winner all txids
                 tourneyManager_.updateState(mytd_, watchTable_, TableState::Finished);

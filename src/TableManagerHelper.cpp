@@ -4,10 +4,10 @@
 
 void TableManager::updateState(TournamentDirector* mytd, Table& table, TableState newState) {
     if (table.state!= newState) {
-       table.state = newState;
         if (stateChangeCallback) {
             stateChangeCallback(mytd, table, newState);
         }
+       table.state = newState;
     }
 }
 

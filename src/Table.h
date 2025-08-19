@@ -5,8 +5,6 @@
 #include "Player.h"
 #include <vector>
 
-//class TournamentDirector; // Forward declaration
-
 enum TableType {
     Final = 1,
     Qualifier = 2
@@ -14,9 +12,9 @@ enum TableType {
 
 struct TableInfo {
     uint32_t game_id = 0;
-    std::string name;
-    std::string watcher;
-    TableType type;
+    std::string name = "";
+    std::string watcher = "";
+    TableType type = Qualifier;
     int max_players = 10;
 };
 

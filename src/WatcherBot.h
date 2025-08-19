@@ -47,7 +47,10 @@ private:
     
     // ------------------ Functions ------------------
     void invitePlayers() {
+        std::cout << "invitePlayers to game " << watchTable_.info.name << " (" << watchTable_.info.game_id << ")" << std::endl;
+
         std::thread([this]() {
+            std::cout << "Invite " << watchTable_.invite.size() << " players one at a time" << std::endl;
             while (watchTable_.state == TableState::Inviting) {
                 for (auto& p : watchTable_.invite) {
                     inviteGame(watchTable_.info.game_id, p.player_id);
