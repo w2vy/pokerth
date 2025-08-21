@@ -140,6 +140,10 @@ void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& t
     on_result(FluxResult{vin_addr, fee_paid, pot_fee, txid, vout_index});
 }
 
+void TournamentDirector::endTourney(void) {
+    activeTourney = NoTourney;
+}
+
 void TournamentDirector::handle_message(const std::vector<char>& data) {
     PokerTHMessage msg;
     if (!msg.ParseFromArray(data.data(), data.size())) {
@@ -363,12 +367,23 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                 if (chat.chattext() == "solo" || chat.chattext() == "solo help") {
                     sendTell(playerid, "Syntax: solo <entry_fee> [prize_txid|'none'] [Game Name]");
                 }
-                if (chat.chattext().compare(0, 5, "solo ") == 0) {
+                if (chat.chattext() == "multi" || chat.chattext() == "multi help") {
+                    sendTell(playerid, "Syntax: multi <entry_fee> [prize_txid|'none'] [Game Name]");
+                }
+                if (chat.chattext().compare(0, 5, "solo ") == 0 || chat.chattext().compare(0, 6, "multi ") == 0) {
+                    std::string input;
+                    int clen = 6;
+                    TourneyType ttype = TwoRounds;
+                    if (chat.chattext().compare(0, 5, "solo ") == 0) {
+                        clen = 5;
+                        ttype = OneRound;
+                    }
+
                     if (activeTourney != NoTourney) {
                         sendTell(playerid, "There is already an active tourney");
                         break;
                     }
-                    std::string input = chat.chattext().substr(5);  // strip "solo "
+                    input = chat.chattext().substr(clen);  // strip "solo "/"multi "
                     std::istringstream iss(input);
                     std::string fee_str, txid_str, rest;
                     
@@ -410,17 +425,29 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                     std::cout << "TxID: " << txid << "\n";
                     std::cout << "Game Name: " << game_name << "\n";
 
+                    const std::string username = vm_["username"].as<std::string>();
                     std::string game_prize_txid = "";
                     auto self = std::static_pointer_cast<TournamentDirector>(shared_from_this());
 
-                    auto openGame = [this, playerid, game_fee, game_name]() {
+                    auto openGame = [this, playerid, game_fee, ttype, game_name, username]() {
                         std::cout << "Create Solo Game" << std::endl;
-                        activeTourney = OneRound;
+                        activeTourney = ttype;
                         registrationOpen = true;
                         entryFee = game_fee;
                         gameName = game_name;
                         maxRegistration = 10;
                         sendTell(playerid, game_name + " is open! Have players 'join <txid>' or 'join' if free");
+                        if (entryFee == 0) {
+                            std::ostringstream oss;
+                            oss << game_name << " is open! Type: /msg " << username << " join";
+                            sendLobby(oss.str());
+                        } else {
+                            std::ostringstream oss;
+                            oss << game_name << " is open! Type: /msg " << username << " join <txid>";
+                            sendLobby(oss.str());
+                            oss << "Where <txid> is the txid of a Flux payment to " << botadr << " for " << entryFee << " Flux";
+                            sendLobby(oss.str());
+                        }
                     };
 
                     if (txid.empty()) {
@@ -749,6 +776,10 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
 void TournamentDirector::create_and_run_watcher_bot(boost::asio::io_context& io, const po::variables_map& vm, Table& wtable) {
     auto bot = std::make_shared<WatcherBot>(io, vm, wtable, this, tourneyManager_);
     bots_.push_back(bot);
+}
+
+void TournamentDirector::create_and_run_watcher_bot(Table& wtable) {
+    create_and_run_watcher_bot(io_context_, vm_, wtable);
 }
 
 void TournamentDirector::run_watcher_bots() {

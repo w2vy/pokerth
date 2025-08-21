@@ -51,13 +51,14 @@ private:
 
         std::thread([this]() {
             std::cout << "Invite " << watchTable_.invite.size() << " players one at a time" << std::endl;
-            while (watchTable_.state == TableState::Inviting) {
+            while (watchTable_.state == TableState::Inviting && watchTable_.invite.size() > 0) {
                 for (auto& p : watchTable_.invite) {
                     inviteGame(watchTable_.info.game_id, p.player_id);
                     std::this_thread::sleep_for(std::chrono::seconds(1));
                 }
-                std::this_thread::sleep_for(std::chrono::seconds(60));
+                std::this_thread::sleep_for(std::chrono::seconds(15));
             }
+            std::cout << "Invite " << watchTable_.invite.size() << " Done" << std::endl;
         }).detach();
     }
 

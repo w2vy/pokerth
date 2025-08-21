@@ -360,7 +360,7 @@ void WatcherBot::handle_message(const std::vector<char>& data) {
                     if (ack.areyougameadmin()) {
                         std::cout << "JoinGame Ack WatcherBot " << gameid << " Table " << game_name << std::endl;
                         if (game_name == watchTable_.info.name && watchTable_.info.game_id == 0) {
-                            // Our gaame and gameid is not set
+                            // Our game and gameid is not set
                             std::cout << "JoinGameAck WB " << game_name << " id " << gameid << std::endl;
                             std::cout << "Game ID set" << std::endl;
                             watchTable_.info.game_id = gameid;

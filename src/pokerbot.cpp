@@ -117,6 +117,8 @@ void TourneyStateMachine(TournamentDirector* mytd, Table& table, TableState newS
                 }
             }
             if (create_final) {
+                finalTable.info.max_players = finalTable.invite.size();
+                mytd->create_and_run_watcher_bot(table);
                 // create game, invite players, etc (InvitePlayerToGameMessage)
                 std::cout << "Create Final Game" << std::endl;
                 mytd->createGame(finalTable.info.name, "", NetGameInfo_NetGameType_inviteOnlyGame, finalTable.invite.size());
@@ -173,6 +175,7 @@ void TourneyStateMachine(TournamentDirector* mytd, Table& table, TableState newS
             // Send winner(s) prize here?
             table.invite.clear();
             tourneyManager.removeTable(table);
+            mytd->endTourney();
         }
     }
 //    if (table.info.type == Solo) {
