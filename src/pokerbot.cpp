@@ -84,60 +84,56 @@ int safe_stoi(const std::string& str, int error_val) {
 void TourneyStateMachine(TournamentDirector* mytd, Table& table, TableState newState) {
     std::cout << "Table" << table.info.name << " (" << table.info.game_id << ") " << table.info.type << "] changed state from " << stateName(table.state) << " to " << stateName(newState) << std::endl;
     if (table.info.type == Qualifier) {
-        bool hasFinalTable = false;
-        Table finalTable;
-        try {
-            finalTable = tourneyManager.findTableByType(Final);
-            hasFinalTable = true;
-        } catch (const std::out_of_range& e) {
-            std::cerr << "Error: " << e.what() << std::endl;
-        }
-        if (!hasFinalTable && table.state == TableState::Playing) { // No final table created yet, create once we have a game Playing
-            finalTable = tourneyManager.addTable("Flux Final", "WatchBot");
-            finalTable.info.type = Final;
-            hasFinalTable = true;
+        Table* finalTable = tourneyManager.pFindTableByType(Final);
+        if (!finalTable && table.state == TableState::Playing) { // No final table created yet, create once we have a game Playing
+            std::cout << "Created Final Table" << std::endl;
+            Table& fTable = tourneyManager.addTable("Flux Final", "WatchBot");
+            fTable.info.type = Final;
+            finalTable = tourneyManager.pFindTableByType(Final);
         }
         if (newState == TableState::Playing) {
             // Refund fee offered by players who never joined - or maybe better to have an external cron that refunds stale txid in wallet
             table.invite.clear(); // We're playing, no more invites
         }
-        if (hasFinalTable && newState == TableState::Finished) {
+        if (finalTable) std::cout << "Has Final Table" << std::endl;
+        if (finalTable && newState == TableState::Finished) {
             // Append winner and runner up to finalTable->Invites
-            finalTable.invite.insert(finalTable.invite.end(), table.invite.begin(), table.invite.end());
-            std::cout << finalTable.info.name << " now has " << finalTable.invite.size() << " Players" << std::endl;
-            // Check to see if all Qualifier games are finished and then start Final
-            std::vector<Table> tables = tourneyManager.getTables();
-            bool create_final = true;
-            for (const auto& table : tables) {
-                // Read-only access
-                if (table.info.type != Qualifier) continue;
-                if (table.state <= TableState::Playing) {
-                    create_final = false;
-                    break; // Still playing Qualifiers
-                }
+            finalTable->invite.insert(finalTable->invite.end(), table.invite.begin(), table.invite.end());
+            std::cout << finalTable->info.name << " now has " << finalTable->invite.size() << " Players" << std::endl;
+            // // Check to see if all Qualifier games are finished and then start Final
+            // std::vector<Table> tables = tourneyManager.getTables();
+            // bool create_final = true;
+            // for (const auto& table : tables) {
+            //     // Read-only access
+            //     if (table.info.type != Qualifier) continue;
+            //     if (table.state <= TableState::Playing) {
+            //         create_final = false;
+            //         break; // Still playing Qualifiers
+            //     }
+            // }
+            // if (create_final) {
+            //     finalTable.info.max_players = finalTable.invite.size();
+            //     mytd->create_and_run_watcher_bot(table);
+            //     // create game, invite players, etc (InvitePlayerToGameMessage)
+            //     std::cout << "Create Final Game" << std::endl;
+            //     mytd->createGame(finalTable.info.name, "", NetGameInfo_NetGameType_inviteOnlyGame, finalTable.invite.size());
+            // }
+        }
+        // if (newState == TableState::Playing) {
+        //     // No refund if they played the first round
+        //     table.invite.clear(); // We're playing, no more invites
+        // }
+        if (newState == TableState::Closed) {
+            if (table.invite.size() == 2) {
+                std::string shout = "Congratulations to the winners of " + table.info.name + ": #1 - " + table.invite.at(0).name + " #2 - " + table.invite.at(1).name;
+                std::cout << shout << std::endl;
+                mytd->sendLobby(shout);
             }
-            if (create_final) {
-                finalTable.info.max_players = finalTable.invite.size();
-                mytd->create_and_run_watcher_bot(table);
-                // create game, invite players, etc (InvitePlayerToGameMessage)
-                std::cout << "Create Final Game" << std::endl;
-                mytd->createGame(finalTable.info.name, "", NetGameInfo_NetGameType_inviteOnlyGame, finalTable.invite.size());
-            }
+            table.invite.clear();
+            tourneyManager.removeTable(table);
         }
-        if (newState == TableState::Closed) {        }
-        if (newState == TableState::Playing) {
-            // No refund if they played the first round
-            table.invite.clear(); // We're playing, no more invites
-        }
-        if (table.invite.size() == 2) {
-            std::string shout = "Congratulations to the winners of " + table.info.name + ": #1 - " + table.invite.at(0).name + " #2 - " + table.invite.at(1).name;
-            std::cout << shout << std::endl;
-            mytd->sendLobby(shout);
-        }
-        table.invite.clear();
-        tourneyManager.removeTable(table);
 
-        if (hasFinalTable) {
+        if (finalTable) {
             std::vector<Table> tables = tourneyManager.getTables();
             bool start_final = true;
             std::cout << "Maybe start final match " << std::endl;
@@ -149,11 +145,10 @@ void TourneyStateMachine(TournamentDirector* mytd, Table& table, TableState newS
                 }
             }
             if (start_final) { // Time to Invite all players and play!
-                std::cout << "Start Final " << finalTable.info.name << std::endl;
-                for (const Player& player : finalTable.invite) { // This should run until all players have joined or game is started (manually)
-                    std::cout << "Invite " << player.name << " <===========================    INVITE " << std::endl;
-                    mytd->inviteGame(finalTable.info.game_id, player.player_id);
-                }
+                std::cout << "Start Final " << finalTable->info.name << std::endl;
+                finalTable->info.max_players = finalTable->invite.size();
+                mytd->create_and_run_watcher_bot(table);
+                mytd->run_watcher_bots();
             }
         }
     }

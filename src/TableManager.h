@@ -16,6 +16,7 @@ public:
     void removeTable(size_t id);
     void removeTable(const Table& t);
     std::vector<Table> getTables();
+    Table* pFindTableByType(const TableType type);
     Table& findTableByType(const TableType type);
     Table& findTableByName(const std::string& name);
     Table& findTableByGameId(uint32_t gameId);

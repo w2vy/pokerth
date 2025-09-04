@@ -39,6 +39,15 @@ Table& TableManager::findTableByType(const TableType type) {
     throw std::out_of_range("Table not found");
 }
 
+Table* TableManager::pFindTableByType(const TableType type) {
+    for (auto& [id, table] : tables) {
+        if (table.info.type == type) {
+            return &table;
+        }
+    }
+    return nullptr;
+}
+
 Table& TableManager::findTableByName(const std::string& name) {
     for (auto& [id, table] : tables) {
         if (table.info.name == name) {

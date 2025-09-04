@@ -32,7 +32,7 @@ std::string url_encode(const std::string& value) {
     return escaped.str();
 }
 
-const int MaxTablePlayers = 10;
+const int MaxTablePlayers = 4; // 10;
 
 TournamentDirector::TournamentDirector(boost::asio::io_context& io, const boost::program_options::variables_map& vm, TableManager tourneyManager)
     : PokerClient(io, vm), tourneyManager_(tourneyManager),
