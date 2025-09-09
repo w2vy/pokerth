@@ -145,7 +145,7 @@ void TourneyStateMachine(TournamentDirector* mytd, Table& table, TableState newS
                 }
             }
             if (start_final) { // Time to Invite all players and play!
-                std::cout << "Start Final " << finalTable->info.name << std::endl;
+                std::cout << "Start Final " << finalTable->info.name << " Bot " << finalTable->info.watcher << std::endl;
                 finalTable->info.max_players = finalTable->invite.size();
                 mytd->create_and_run_watcher_bot(table);
                 mytd->run_watcher_bots();

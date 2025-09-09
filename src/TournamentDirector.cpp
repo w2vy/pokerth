@@ -510,11 +510,12 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                         nTables++;
                     }
                     int nPlayers = registeredPlayers.size()/nTables;
+                    nExtra = registeredPlayers.size() - (nTables * nPlayers);
                     // Create nTables with nPlayers and nExtra tables have +1
                     int n = 0;
                     while (n < nTables) {
                         int np = nPlayers;
-                        if (nExtra > 0 && nTables > 1) {
+                        if (nExtra > 0) {
                             np = nPlayers + 1;
                             nExtra--;
                         }
@@ -537,7 +538,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                         }
                         nextRegistered += np;
                         table.info.max_players = np;
-                        std::cout << "Create bot " << table.info.name << " with " << np << " Players" << std::endl;
+                        std::cout << "Create bot " << table.info.watcher << " for " << table.info.name << " with " << np << " Players" << std::endl;
                         //createGame(table.info.name, "", NetGameInfo_NetGameType_inviteOnlyGame, np);
                         create_and_run_watcher_bot(io_context_, vm_, table);
                     }
@@ -773,9 +774,17 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
     }
 }
 
-void TournamentDirector::create_and_run_watcher_bot(boost::asio::io_context& io, const po::variables_map& vm, Table& wtable) {
+void TournamentDirector::create_and_run_watcher_bot(
+    boost::asio::io_context& io,
+    const po::variables_map& vm,
+    Table& wtable
+) {
+    std::cout << "create_and_run_watcher_bot " << wtable.info.watcher << " for " << wtable.info.name << std::endl;
     auto bot = std::make_shared<WatcherBot>(io, vm, wtable, this, tourneyManager_);
-    bots_.push_back(bot);
+    {
+        std::lock_guard<std::mutex> lock(bots_mutex_);
+        bots_.push_back(bot);  // append to back
+    }
 }
 
 void TournamentDirector::create_and_run_watcher_bot(Table& wtable) {
@@ -784,12 +793,20 @@ void TournamentDirector::create_and_run_watcher_bot(Table& wtable) {
 
 void TournamentDirector::run_watcher_bots() {
     std::thread([this]() {
-        for (auto& bot : bots_) {
+        while (true) {
+            std::shared_ptr<WatcherBot> bot;
+            {
+                std::lock_guard<std::mutex> lock(bots_mutex_);
+                if (bots_.empty()) break;
+                bot = std::move(bots_.front());
+                bots_.pop_front();
+            }
             bot->start();
-            std::this_thread::sleep_for(std::chrono::seconds(35)); // Need minimum os 30 Sec for next bot connect
+            std::this_thread::sleep_for(std::chrono::seconds(35));
         }
     }).detach();
 }
+
 
 #if 0
 void TournamentDirector::create_and_run_watcher_botX(boost::asio::io_context& io, const po::variables_map& vm, Table wtable) {

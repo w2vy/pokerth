@@ -7,6 +7,8 @@
 #include <string>
 #include <iomanip>
 #include <sstream>
+#include <mutex>
+#include <deque>
 #include "PokerClient.h"
 
 enum TourneyType {
@@ -39,7 +41,8 @@ public:
 private:
     TableManager tourneyManager_;
     std::unordered_map<int, std::shared_ptr<WatcherBot>> watchers_;
-    std::vector<std::shared_ptr<WatcherBot>> bots_;
+    std::deque<std::shared_ptr<WatcherBot>> bots_;
+    std::mutex bots_mutex_;
     boost::asio::ssl::context ssl_ctx_;
     std::string botadr = "t1KbvgXPrJ1RuCzBr5FjsPZk7XUrswu99zu";
     TourneyType activeTourney = NoTourney;
