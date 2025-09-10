@@ -100,29 +100,7 @@ void TourneyStateMachine(TournamentDirector* mytd, Table& table, TableState newS
             // Append winner and runner up to finalTable->Invites
             finalTable->invite.insert(finalTable->invite.end(), table.invite.begin(), table.invite.end());
             std::cout << finalTable->info.name << " now has " << finalTable->invite.size() << " Players" << std::endl;
-            // // Check to see if all Qualifier games are finished and then start Final
-            // std::vector<Table> tables = tourneyManager.getTables();
-            // bool create_final = true;
-            // for (const auto& table : tables) {
-            //     // Read-only access
-            //     if (table.info.type != Qualifier) continue;
-            //     if (table.state <= TableState::Playing) {
-            //         create_final = false;
-            //         break; // Still playing Qualifiers
-            //     }
-            // }
-            // if (create_final) {
-            //     finalTable.info.max_players = finalTable.invite.size();
-            //     mytd->create_and_run_watcher_bot(table);
-            //     // create game, invite players, etc (InvitePlayerToGameMessage)
-            //     std::cout << "Create Final Game" << std::endl;
-            //     mytd->createGame(finalTable.info.name, "", NetGameInfo_NetGameType_inviteOnlyGame, finalTable.invite.size());
-            // }
         }
-        // if (newState == TableState::Playing) {
-        //     // No refund if they played the first round
-        //     table.invite.clear(); // We're playing, no more invites
-        // }
         if (newState == TableState::Closed) {
             if (table.invite.size() == 2) {
                 std::string shout = "Congratulations to the winners of " + table.info.name + ": #1 - " + table.invite.at(0).name + " #2 - " + table.invite.at(1).name;
@@ -137,17 +115,13 @@ void TourneyStateMachine(TournamentDirector* mytd, Table& table, TableState newS
             std::vector<Table> tables = tourneyManager.getTables();
             bool start_final = true;
             std::cout << "Maybe start final match " << std::endl;
-            for (const auto& table : tables) {
-                // Start final game when all qualifiers are closed
-                if (table.info.type == Qualifier) {
-                    start_final = false;
-                    break;
-                }
-            }
+            Table *t = tourneyManager.pFindTableByType(Qualifier);
+            if (t) start_final = false;
             if (start_final) { // Time to Invite all players and play!
-                std::cout << "Start Final " << finalTable->info.name << " Bot " << finalTable->info.watcher << std::endl;
-                finalTable->info.max_players = finalTable->invite.size();
-                mytd->create_and_run_watcher_bot(table);
+                Table& fTable = tourneyManager.findTableByType(Final);
+                std::cout << "Start Final " << fTable.info.name << " Bot " << fTable.info.watcher << std::endl;
+                fTable.info.max_players = fTable.invite.size();
+                mytd->create_and_run_watcher_bot(fTable);
                 mytd->run_watcher_bots();
             }
         }

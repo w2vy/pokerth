@@ -25,7 +25,7 @@ class TournamentDirector : public PokerClient {
     using FluxResultCallback = std::function<void(FluxResult)>;
 
 public:
-    TournamentDirector(boost::asio::io_context& io, const boost::program_options::variables_map& vm, TableManager tourneyManager);
+    TournamentDirector(boost::asio::io_context& io, const boost::program_options::variables_map& vm, TableManager& tourneyManager);
     void validateFluxFee(uint32_t playerid, const std::string& txid, const Txn& txn, FluxResultCallback on_result);
     void handle_message(const std::vector<char>& data) override;
     void create_and_run_watcher_bot(boost::asio::io_context& io, const po::variables_map& vm, Table& wtable);
@@ -39,7 +39,7 @@ public:
     void createGame(std::string name, std::string password, NetGameInfo_NetGameType gameType);
 
 private:
-    TableManager tourneyManager_;
+    TableManager& tourneyManager_;
     std::unordered_map<int, std::shared_ptr<WatcherBot>> watchers_;
     std::deque<std::shared_ptr<WatcherBot>> bots_;
     std::mutex bots_mutex_;

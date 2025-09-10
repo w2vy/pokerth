@@ -11,7 +11,7 @@
 class WatcherBot : public PokerClient {
     
 public:
-    WatcherBot(boost::asio::io_context& io, const po::variables_map& vm, Table& table, TournamentDirector* td, TableManager tourneyManager);
+    WatcherBot(boost::asio::io_context& io, const po::variables_map& vm, Table& table, TournamentDirector* td, TableManager& tourneyManager);
     void start(void) override;
     void handle_message(const std::vector<char>& data) override;
     std::string getNetPlayerState(uint32_t state);
@@ -35,7 +35,7 @@ private:
     const po::variables_map& vm_;
     Table& watchTable_;
     TournamentDirector* mytd_;
-    TableManager tourneyManager_;
+    TableManager& tourneyManager_;
     uint32_t watcherBotID;
     std::unordered_map<int, Player> Players;
     std::int32_t start_money;

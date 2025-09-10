@@ -34,7 +34,7 @@ std::string url_encode(const std::string& value) {
 
 const int MaxTablePlayers = 4; // 10;
 
-TournamentDirector::TournamentDirector(boost::asio::io_context& io, const boost::program_options::variables_map& vm, TableManager tourneyManager)
+TournamentDirector::TournamentDirector(boost::asio::io_context& io, const boost::program_options::variables_map& vm, TableManager& tourneyManager)
     : PokerClient(io, vm), tourneyManager_(tourneyManager),
     ssl_ctx_(boost::asio::ssl::context::sslv23_client) {
     ssl_ctx_.set_verify_mode(boost::asio::ssl::verify_peer);

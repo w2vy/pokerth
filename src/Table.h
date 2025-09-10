@@ -6,6 +6,7 @@
 #include <vector>
 
 enum TableType {
+    None = 0,
     Final = 1,
     Qualifier = 2
 };

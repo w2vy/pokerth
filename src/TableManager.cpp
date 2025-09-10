@@ -31,6 +31,7 @@ Table& TableManager::getTable(size_t id) {
 }
 
 Table& TableManager::findTableByType(const TableType type) {
+    std::cout << "findTableByType " << tables.size() << std::endl;
     for (auto& [id, table] : tables) {
         if (table.info.type == type) {
             return table;
@@ -40,6 +41,7 @@ Table& TableManager::findTableByType(const TableType type) {
 }
 
 Table* TableManager::pFindTableByType(const TableType type) {
+    std::cout << "pFindTableByType " << tables.size() << std::endl;
     for (auto& [id, table] : tables) {
         if (table.info.type == type) {
             return &table;
@@ -71,10 +73,17 @@ void TableManager::removeTable(size_t id) {
 }
 
 void TableManager::removeTable(const Table& t) {
-    auto it = tables.find(t.info.game_id);
-    if (it!= tables.end()) {
-        tables.erase(it);
+    for (auto& [id, table] : tables) {
+        if (table.info.game_id == t.info.game_id) {
+            table.info.game_id = 0;
+            table.info.name = "";
+            table.info.watcher = "";
+            table.info.type = TableType::None;
+            tables.erase(id);
+            return;
+        }
     }
+    std::cout << "removeTable Failed - not found" << std::endl;
 }
 
 std::vector<Table> TableManager::getTables() { // Read Only

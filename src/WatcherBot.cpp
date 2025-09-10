@@ -8,7 +8,7 @@
 std::string printableSessionId(const std::string& sessionId);
 std::string printableErrorReason(ErrorMessage_ErrorReason cause);
 
-WatcherBot::WatcherBot(boost::asio::io_context& io, const po::variables_map& vm, Table& table, TournamentDirector* td, TableManager tourneyManager)
+WatcherBot::WatcherBot(boost::asio::io_context& io, const po::variables_map& vm, Table& table, TournamentDirector* td, TableManager& tourneyManager)
  : PokerClient(io, vm), io_(io), vm_(vm), watchTable_(table), mytd_(td), tourneyManager_(tourneyManager) {
     std::cout << watchTable_.info.watcher << ": Watch " << watchTable_.info.name << std::endl;
 }
