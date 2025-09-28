@@ -547,8 +547,8 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                         if (activeTourney == OneRound) table.info.type = Solo;
                         else {
                             table.info.type = Qualifier;
+                            if (nTables == 1) table.info.type = Final;
                         }
-                        if (nTables == 1) table.info.type = Final;
                         int processed = 0;
                         while (processed < np) {
                             size_t ndx = nextRegistered + processed;

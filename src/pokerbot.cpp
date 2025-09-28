@@ -195,13 +195,13 @@ void TourneyStateMachine(TournamentDirector* mytd, Table& table, TableState newS
                 std::cout << shout << std::endl;
                 mytd->sendLobby(shout);
             }
-            if (table.winners.size() == 1) {
+            if (table.info.type == Solo) {
                 std::string shout = "Congratulations to the winner of " + table.info.name + ": " + table.winners.at(0).name +totalpot;
                 std::cout << shout << std::endl;
                 std::cout << "Pay Winner " << table.winners.at(0).entryFee.vin_address << " " << format_pot(total_pot) << " Flux" << std::endl;
                 mytd->sendLobby(shout);
             }
-            if (table.winners.size() == 2) {
+            if (table.info.type == Final) {
                 std::string first_pot = "";
                 std::string second_pot = "";
                 if (total_pot > 0) {
