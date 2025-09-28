@@ -210,6 +210,7 @@ main(int argc, char *argv[])
 		("spasswd,S", po::value<string>(), "PokerTH Server Password")
 		("port,P", po::value<string>(), "PokerTH server port")
 		("mode,m", po::value<int>(), "set mode (0=connection test, 1=lag test, 2=invite test)")
+		("txid,t", po::value<string>(), "txid for join command")
 		("username,u", po::value<string>(), "user name used for test")
 		("password,p", po::value<string>(), "password used for test")
 		;
@@ -241,6 +242,10 @@ main(int argc, char *argv[])
 		string spasswd;
 		if (vm.count("spasswd")) {
 			spasswd = vm["spasswd"].as<string>();
+		}
+		string txid = "";
+		if (vm.count("txid")) {
+			txid = vm["txid"].as<string>();
 		}
 		// Initialise gsasl.
 		Gsasl *authContext;
@@ -401,7 +406,14 @@ main(int argc, char *argv[])
 								if (chat.chattext() == "exit") {
 									running = false;
 								}
-								if (chat.chattext() == "Table is open! Type: /msg TD join") {
+								if (chat.chattext().find(" is open! Type: /msg TD join <txid>") != std::string::npos) {
+									if (txid.size()) {
+										int delay = std::rand() % 10 + 1; // gives a value from 1 to 10
+										sleep(delay);
+										sendTell(socket, msg, player_id, "join " + txid);
+									}
+								}
+								else if (chat.chattext().find(" is open! Type: /msg TD join") != std::string::npos) {
 									int delay = std::rand() % 10 + 1; // gives a value from 1 to 30
 									sleep(delay);
 									sendTell(socket, msg, player_id, "join");
@@ -431,7 +443,7 @@ main(int argc, char *argv[])
 							int playerid = turn.playerid();
 							NetGameState state = turn.gamestate();
 							std::cout << "Player Turn " << playerid << " Game " << gameid << " " << gameState(state) << std::endl;
-							int move = std::rand() % 3;
+							int move = std::rand() % 8;
 							//int delay = std::rand() % 5 + 1;
 							NetPlayerAction action = netActionNone;
 							int bet = 0;

@@ -208,7 +208,7 @@ void WatcherBot::createGame(std::string name, std::string password, NetGameInfo_
     tmpGameInfo->set_playeractiontimeout(15);
     tmpGameInfo->set_endraisesmallblindvalue(0);
     tmpGameInfo->set_firstsmallblind(50);
-    tmpGameInfo->set_startmoney(3000);
+    tmpGameInfo->set_startmoney(5000);
     tmpGameInfo->set_gamename(name);
     tmpGameInfo->set_netgametype(gameType);
     if (!password.empty()) {
@@ -313,7 +313,7 @@ void WatcherBot::handle_message(const std::vector<char>& data) {
                 auto it = std::find_if(watchTable_.invite.begin(), watchTable_.invite.end(),
                        [&](const Player& p) { return p.player_id == player_id; });
                 if (it!= watchTable_.invite.end()) {
-                    watchTable_.invite.erase(it);
+                    watchTable_.invite.erase(it); // TODO capture txid
                 }
                 if (watchTable_.num_players > 2 && !watchTable_.left_table) { // Should be 5
                     watchTable_.left_table = true;
@@ -473,10 +473,12 @@ void WatcherBot::handle_message(const std::vector<char>& data) {
                 auto [first, second] = find_winners();
                 // Set results so TD can see who advances
                 Player Winner = {first->player_id, {}, first->name, 0, 0, 0, 0};
-                watchTable_.invite.push_back(Winner);
-                Player RunnerUp = {second->player_id, {}, second->name, 0, 0, 0, 0};
-                watchTable_.invite.push_back(RunnerUp);
-                Players.clear(); // Give winner all txids
+                watchTable_.winners.push_back(Winner);
+                if (watchTable_.info.type == Final) {
+                    Player RunnerUp = {second->player_id, {}, second->name, 0, 0, 0, 0};
+                    watchTable_.winners.push_back(RunnerUp);
+                }
+                Players.clear(); // Not needed any more, all players (w/txids) are in RegisteredPlayers{}
                 tourneyManager_.updateState(mytd_, watchTable_, TableState::Finished);
             }
             break;

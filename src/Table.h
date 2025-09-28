@@ -8,7 +8,8 @@
 enum TableType {
     None = 0,
     Final = 1,
-    Qualifier = 2
+    Qualifier = 2,
+    Solo = 3
 };
 
 struct TableInfo {
@@ -26,6 +27,7 @@ struct Table {
     bool left_table = false;
     TableInfo info;
     std::vector<Player> invite;
+    std::vector<Player> winners;
 };
 
 #endif  // TABLE_H

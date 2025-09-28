@@ -32,7 +32,21 @@ std::string url_encode(const std::string& value) {
     return escaped.str();
 }
 
-const int MaxTablePlayers = 4; // 10;
+std::string format_amount(double value) {
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(8) << value;  
+    std::string s = oss.str();
+
+    // strip trailing zeros
+    s.erase(s.find_last_not_of('0') + 1, std::string::npos);
+
+    // if ends with '.', remove it too
+    if (!s.empty() && s.back() == '.') {
+        s.pop_back();
+    }
+
+    return s;
+}
 
 TournamentDirector::TournamentDirector(boost::asio::io_context& io, const boost::program_options::variables_map& vm, TableManager& tourneyManager)
     : PokerClient(io, vm), tourneyManager_(tourneyManager),
@@ -76,11 +90,11 @@ void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& t
     const auto& vin_array = data.at("vin").as_array();
     const auto& vout_array = data.at("vout").as_array();
 
-    if (confirmations <= 2) {
-        msg = "Not confirmed (" + std::to_string(confirmations) + ") " + short_txid;
-        sendTell(playerid, msg);
-        return;
-    }
+    // if (confirmations <= 2) {
+    //     msg = "Not confirmed (" + std::to_string(confirmations) + ") " + short_txid;
+    //     sendTell(playerid, msg);
+    //     return;
+    // }
 
     if (vin_array.empty() || vout_array.empty()) {
         msg = "Unexpected transaction format: # vin " + std::to_string(vin_array.size()) +
@@ -129,12 +143,17 @@ void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& t
 
     std::cout << "Player " << vin_addr << " vout " << vout_index << " txid " << txid << std::endl;
     std::ostringstream oss;
-    oss << "Accepted! Confirmations " << confirmations
-        << " Paid: " << std::fixed << std::setprecision(8) << paid
-        << " Flux Add to Pot: " << std::fixed << std::setprecision(8) << pot
+    oss << " Paid: " << format_amount(paid)
+        << " Flux Add to Pot: " << format_amount(pot)
         << " Flux, vout " << vout_index;
 
     sendTell(playerid, oss.str());
+
+    if (confirmations <= 2) {
+        msg = "Not fully confirmed (" + std::to_string(confirmations) + "), try again in 5 minutes. " + short_txid;
+        sendTell(playerid, msg);
+        return;
+    }
 
     // ⬇️ Return values via callback
     on_result(FluxResult{vin_addr, fee_paid, pot_fee, txid, vout_index});
@@ -323,6 +342,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
             std::cout << "TD Received Chat: " << chat.chattext() << std::endl;
             if (chat.chattype() == ChatMessage_ChatType_chatTypePrivate) {
                 uint32_t playerid = 0;
+                int maxPlayers = MaxTablePlayers;
                 if (chat.has_playerid()) playerid = chat.playerid();
 
                 if (chat.chattext() == "tables") {
@@ -377,6 +397,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                     if (chat.chattext().compare(0, 5, "solo ") == 0) {
                         clen = 5;
                         ttype = OneRound;
+                        maxPlayers = MaxTablePlayers * 5; // 2 Player each table advance to final
                     }
 
                     if (activeTourney != NoTourney) {
@@ -425,17 +446,18 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                     std::cout << "TxID: " << txid << "\n";
                     std::cout << "Game Name: " << game_name << "\n";
 
+                    registeredPlayers.clear();
                     const std::string username = vm_["username"].as<std::string>();
                     std::string game_prize_txid = "";
                     auto self = std::static_pointer_cast<TournamentDirector>(shared_from_this());
 
-                    auto openGame = [this, playerid, game_fee, ttype, game_name, username]() {
+                    auto openGame = [this, playerid, game_fee, ttype, game_name, username, maxPlayers]() {
                         std::cout << "Create Solo Game" << std::endl;
                         activeTourney = ttype;
                         registrationOpen = true;
                         entryFee = game_fee;
                         gameName = game_name;
-                        maxRegistration = 10;
+                        maxRegistration = maxPlayers;
                         sendTell(playerid, game_name + " is open! Have players 'join <txid>' or 'join' if free");
                         if (entryFee == 0) {
                             std::ostringstream oss;
@@ -522,8 +544,11 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                         n++;
                         std::cout << "Create " << gameName << std::endl;
                         Table& table = tourneyManager_.addTable(gameName, "WatchBot");
-                        if (activeTourney == OneRound) table.info.type = Final;
-                        else table.info.type = Qualifier;
+                        if (activeTourney == OneRound) table.info.type = Solo;
+                        else {
+                            table.info.type = Qualifier;
+                        }
+                        if (nTables == 1) table.info.type = Final;
                         int processed = 0;
                         while (processed < np) {
                             size_t ndx = nextRegistered + processed;
@@ -646,10 +671,10 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                                 std::cout << "Transaction fetch success for player " << playerid << std::endl;
                                 self->validateFluxFee(playerid, txid, txn, [this, playerid, txid](FluxResult result) {
                                     std::cout << "Received result for player address: " << result.vin_address << std::endl;
-                                    if (result.paid_flux != entryFee) {
+                                    if (result.paid_flux < entryFee*100000000) {
                                         std::ostringstream oss;
-                                        oss << "The entry fee is " << std::fixed << std::setprecision(8) << entryFee
-                                            << " Flux, your txid is for " << std::fixed << std::setprecision(8) << result.paid_flux
+                                        oss << "The entry fee is " << format_amount(entryFee)
+                                            << " Flux, your txid is for " << format_amount(result.paid_flux)
                                             << " Flux";
                                         std::string msg = oss.str();
                                         sendTell(playerid, msg);
@@ -659,7 +684,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                                         bool addrExists = std::any_of(registeredPlayers.begin(), registeredPlayers.end(),
                                                                     [&](const auto& entry) { return entry.second.txid == txid; });
                                         if (idExists) {
-                                            sendTell(playerid, "You have already entered, you will receive an invite");
+                                            sendTell(playerid, "You have already entered, you will receive an invite when the game starts.");
                                         } else if (addrExists) {
                                             std::ostringstream oss;
                                             oss << "Your txid has been used by another player " << playerid << " use your own txid";
@@ -667,9 +692,12 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                                         } else {
                                             std::cout << "Adding player " << playerid << " to registration and txid " << txid << std::endl;
                                             registeredPlayers.emplace_back(playerid, result);
-                                            sendTell(playerid, "Your entry has been accepted, you will receive an invite");
+                                            sendTell(playerid, "Your entry has been accepted, you will receive an invite when the game starts.");
                                             std::cout << "Fee Paid " << result.paid_flux << " pot " << result.pot_flux << std::endl;
-                                            std::cout << "There are " << registeredPlayers.size() << " registered" << std::endl;
+                                            std::ostringstream oss;
+                                            oss << "There are " << registeredPlayers.size() << " registered";
+                                            std::cout << oss.str() << std::endl;
+                                            sendLobby(oss.str());
                                         }
                                     }
                                 });
@@ -747,14 +775,16 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                 send_message(info);
             }
             if (player.playerlistnotification() == PlayerListMessage::playerListLeft) {
-                registeredPlayers.erase(
-                    std::remove_if(
-                        registeredPlayers.begin(),
-                        registeredPlayers.end(),
-                        [player_id](const std::pair<uint32_t, FluxResult>& entry) {
-                            return entry.first == player_id;
-                        }),
-                    registeredPlayers.end());
+                if (registrationOpen) { // If they leave before play starts remove them which releases their entry fee
+                    registeredPlayers.erase(
+                        std::remove_if(
+                            registeredPlayers.begin(),
+                            registeredPlayers.end(),
+                            [player_id](const std::pair<uint32_t, FluxResult>& entry) {
+                                return entry.first == player_id;
+                            }),
+                        registeredPlayers.end());
+                }
             }
             break;
         }

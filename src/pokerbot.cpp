@@ -81,6 +81,30 @@ int safe_stoi(const std::string& str, int error_val) {
     }
 }
 
+#include <string>
+#include <sstream>
+#include <iomanip>
+#include <cstdint>
+
+std::string format_pot(uint64_t total_pot) {
+    // Convert to double with 8 decimal places
+    double value = static_cast<double>(total_pot) / 1e8;
+
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(8) << value;
+    std::string str = oss.str();
+
+    // Remove trailing zeros
+    str.erase(str.find_last_not_of('0') + 1);
+
+    // If it ends with '.', remove that too
+    if (!str.empty() && str.back() == '.') {
+        str.pop_back();
+    }
+
+    return str;
+}
+
 void TourneyStateMachine(TournamentDirector* mytd, Table& table, TableState newState) {
     std::cout << "Table" << table.info.name << " (" << table.info.game_id << ") " << table.info.type << "] changed state from " << stateName(table.state) << " to " << stateName(newState) << std::endl;
     if (table.info.type == Qualifier) {
@@ -93,21 +117,33 @@ void TourneyStateMachine(TournamentDirector* mytd, Table& table, TableState newS
         }
         if (newState == TableState::Playing) {
             // Refund fee offered by players who never joined - or maybe better to have an external cron that refunds stale txid in wallet
+            for (auto& p : table.invite) {
+                std::cout << "Refund " << p.entryFee.pot_flux << " to " << p.entryFee.vin_address << std::endl;
+                uint32_t player_id = p.player_id;
+                mytd->registeredPlayers.erase(
+                    std::remove_if(
+                        mytd->registeredPlayers.begin(),
+                        mytd->registeredPlayers.end(),
+                        [player_id](const auto& entry) {
+                            return entry.first == player_id; // match by player_id
+                        }),
+                    mytd->registeredPlayers.end());
+            }
             table.invite.clear(); // We're playing, no more invites
         }
         if (finalTable) std::cout << "Has Final Table" << std::endl;
         if (finalTable && newState == TableState::Finished) {
             // Append winner and runner up to finalTable->Invites
-            finalTable->invite.insert(finalTable->invite.end(), table.invite.begin(), table.invite.end());
+            finalTable->invite.insert(finalTable->invite.end(), table.winners.begin(), table.winners.end());
             std::cout << finalTable->info.name << " now has " << finalTable->invite.size() << " Players" << std::endl;
         }
         if (newState == TableState::Closed) {
-            if (table.invite.size() == 2) {
-                std::string shout = "Congratulations to the winners of " + table.info.name + ": #1 - " + table.invite.at(0).name + " #2 - " + table.invite.at(1).name;
+            if (table.winners.size() == 2) {
+                std::string shout = "Congratulations to the winners of " + table.info.name + ": #1 - " + table.winners.at(0).name + " #2 - " + table.winners.at(1).name;
                 std::cout << shout << std::endl;
                 mytd->sendLobby(shout);
             }
-            table.invite.clear();
+            table.winners.clear();
             tourneyManager.removeTable(table);
         }
 
@@ -126,23 +162,62 @@ void TourneyStateMachine(TournamentDirector* mytd, Table& table, TableState newS
             }
         }
     }
-    if (table.info.type == Final) {
+    if (table.info.type == Final || table.info.type == Solo) {
         if (newState == TableState::Playing) {
-            table.invite.clear(); // We're playing, no more invites
+            if (table.info.type == Solo) {
+                // Refund fee offered by players who never joined
+                for (auto& p : table.invite) {
+                    std::cout << "Refund " << p.entryFee.pot_flux << " to " << p.entryFee.vin_address << std::endl;
+                    uint32_t player_id = p.player_id;
+                    mytd->registeredPlayers.erase(
+                        std::remove_if(
+                            mytd->registeredPlayers.begin(),
+                            mytd->registeredPlayers.end(),
+                            [player_id](const auto& entry) {
+                                return entry.first == player_id; // match by player_id
+                            }),
+                        mytd->registeredPlayers.end());
+                }
+            }
+            table.invite.clear(); // We're playing, no more invites.
         }
         if (newState == TableState::Closed) {
-            if (table.invite.size() == 1) {
-                std::string shout = "Congratulations to the winner of " + table.info.name + ": " + table.invite.at(0).name;
+            uint64_t total_pot = 0;
+            std::vector<std::string> txids = {};
+            for (auto& [pid, p] : mytd->registeredPlayers) {
+                total_pot += p.pot_flux;
+                txids.push_back(p.txid);
+            }
+            std::string totalpot = "";
+            if (total_pot > 0) {
+                totalpot = " " + format_pot(total_pot) + " Flux";
+                std::string shout = "The total pot is" + totalpot;
                 std::cout << shout << std::endl;
                 mytd->sendLobby(shout);
             }
-            if (table.invite.size() == 2) {
-                std::string shout = "Congratulations to the winners of " + table.info.name + ": #1 - " + table.invite.at(0).name + " #2 - " + table.invite.at(1).name;
+            if (table.winners.size() == 1) {
+                std::string shout = "Congratulations to the winner of " + table.info.name + ": " + table.winners.at(0).name +totalpot;
                 std::cout << shout << std::endl;
+                std::cout << "Pay Winner " << table.winners.at(0).entryFee.vin_address << " " << format_pot(total_pot) << " Flux" << std::endl;
+                mytd->sendLobby(shout);
+            }
+            if (table.winners.size() == 2) {
+                std::string first_pot = "";
+                std::string second_pot = "";
+                if (total_pot > 0) {
+                    uint64_t second = (total_pot*40)/100;
+                    uint64_t first = total_pot - second;
+                    first_pot = " " + format_pot(first) + " Flux";
+                    second_pot = " " + format_pot(second) + " Flux";
+                }
+                std::string shout = "Congratulations to the winners of " + table.info.name + ": #1 - " + table.winners.at(0).name + first_pot + " #2 - " + table.winners.at(1).name + second_pot;
+                std::cout << shout << std::endl;
+                std::cout << "Pay Winner 1 " << table.winners.at(0).entryFee.vin_address << first_pot << std::endl;
+                std::cout << "Pay Winner 2 " << table.winners.at(1).entryFee.vin_address << second_pot << std::endl;
                 mytd->sendLobby(shout);
             }
             // Send winner(s) prize here?
-            table.invite.clear();
+            table.winners.clear();
             tourneyManager.removeTable(table);
             mytd->endTourney();
         }

@@ -37,6 +37,7 @@ public:
     void inviteGame(uint32_t gameid, uint32_t player_id);
     void createGame(std::string name, std::string password, NetGameInfo_NetGameType gameType, int nPlayers);
     void createGame(std::string name, std::string password, NetGameInfo_NetGameType gameType);
+    std::vector<std::pair<uint32_t, FluxResult>> registeredPlayers;
 
 private:
     TableManager& tourneyManager_;
@@ -44,13 +45,13 @@ private:
     std::deque<std::shared_ptr<WatcherBot>> bots_;
     std::mutex bots_mutex_;
     boost::asio::ssl::context ssl_ctx_;
-    std::string botadr = "t1KbvgXPrJ1RuCzBr5FjsPZk7XUrswu99zu";
+    std::string botadr = "t1KZURHF1JF84i4JJjXMe3a5tXVoquZhMzf";
     TourneyType activeTourney = NoTourney;
     bool registrationOpen = false;
+    int MaxTablePlayers = 10;
     uint32_t maxRegistration;
     Table *activeTable;
     std::string prizeTxid = "";
-    std::vector<std::pair<uint32_t, FluxResult>> registeredPlayers;
     int64_t prizeFlux = 0;
     int64_t entryFee = 0;
     std::string gameName = "";

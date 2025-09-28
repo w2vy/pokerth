@@ -54,7 +54,7 @@ private:
             while (watchTable_.state == TableState::Inviting && watchTable_.invite.size() > 0) {
                 for (auto& p : watchTable_.invite) {
                     inviteGame(watchTable_.info.game_id, p.player_id);
-                    sleep(1);
+                    sleep(2);
                 }
                 sleep(15);
             }
