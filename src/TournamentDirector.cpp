@@ -63,6 +63,8 @@ void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& t
         return;
     }
 
+    std::string msg;
+#ifdef GETRAW_FIXED
     const auto& obj = txn.raw.as_object();
     if (!obj.contains("data") || !obj.at("data").is_object()) {
         std::cout << "Missing or invalid 'data' field in txn" << std::endl;
@@ -70,7 +72,6 @@ void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& t
     }
 
     const auto& data = obj.at("data").as_object();
-    std::string msg;
     const std::string status = get_str(obj, "status");
     if (status == "error") {
         msg = "Failed: " + get_str(data, "name") + " " +
@@ -84,7 +85,9 @@ void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& t
         sendTell(playerid, "Unknown transaction status: " + status);
         return;
     }
-
+#else
+    const auto& data = txn.raw.as_object();
+#endif
     const auto confirmations = get_val(data, "confirmations");
     std::string short_txid = txid.substr(0, 6) + "..." + txid.substr(txid.size() - 6);
     const auto& vin_array = data.at("vin").as_array();
@@ -121,7 +124,11 @@ void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& t
     int vout = 0;
     for (const auto& vout_entry : vout_array) {
         const auto& vout_obj = vout_entry.as_object();
+#ifdef GETRAW_FIXED
         const auto value = get_val64(vout_obj, "valueSat");
+#else
+        const auto value = get_val64(vout_obj, "value") * 100000000;
+#endif
         const auto& script = vout_obj.at("scriptPubKey");
         const auto& addresses = script.at("addresses").as_array();
         if (addresses.size() == 1) {
@@ -478,9 +485,12 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                     } else {
                         std::cout << "Validating txid: " << txid << "\n";
                         auto fetcher = std::make_shared<TransactionFetcher>(io_context_, ssl_ctx_);
-                        std::string url = "/daemon/getrawtransaction?verbose=1&txid=" + txid;
+//                        std::string host = "api.runonflux.io";
+//                        std::string url = "/daemon/getrawtransaction?verbose=1&txid=" + txid;
+                        const std::string host = "explorer.runonflux.io";
+                        const std::string url = "/api/tx/" + txid;
 
-                        fetcher->async_fetch(url,
+                        fetcher->async_fetch(host, url,
                             [self, fetcher, playerid, txid, openGame](boost::system::error_code ec, Txn txn) {
                                 if (ec) {
                                     std::cout << "Failed to fetch transaction: " << ec.message() << std::endl;
@@ -658,10 +668,13 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                         auto fetcher = std::make_shared<TransactionFetcher>(io_context_, ssl_ctx_);
 
                         // Define the target URL
-                        std::string url = "/daemon/getrawtransaction?verbose=1&txid="+txid;
+//                        std::string host = "api.runonflux.io";
+//                        std::string url = "/daemon/getrawtransaction?verbose=1&txid=" + txid;
+                        const std::string host = "explorer.runonflux.io";
+                        const std::string url = "/api/tx/" + txid;
 
                         // Start async fetch, capturing `self` and `fetcher` to keep them alive
-                        fetcher->async_fetch(url,
+                        fetcher->async_fetch(host, url,
                             [self, fetcher, playerid, txid, this](boost::system::error_code ec, Txn txn) {
                                 if (ec) {
                                     std::cout << "Failed to fetch transaction: " << ec.message() << std::endl;
@@ -731,10 +744,11 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                         auto fetcher = std::make_shared<TransactionFetcher>(io_context_, ssl_ctx_);
 
                         // Define the target URL
-                        std::string url = "/daemon/createrawtransaction?" + encoded_url;
+                        const std::string host = "api.runonflux.io";
+                        const std::string url = "/daemon/createrawtransaction?" + encoded_url;
 
                         // Start async fetch, capturing `self` and `fetcher` to keep them alive
-                        fetcher->async_fetch(url,
+                        fetcher->async_fetch(host, url,
                             [self, fetcher, playerid, txid](boost::system::error_code ec, Txn txn) {
                                 if (ec) {
                                     std::cout << "Failed to fetch transaction: " << ec.message() << std::endl;
