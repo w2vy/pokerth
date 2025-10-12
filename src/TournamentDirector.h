@@ -87,5 +87,54 @@ private:
             }
         return -1;
     }
+
+    int64_t get_val64_from_fixed8(const boost::json::object& obj, const std::string& key) {
+        if (!obj.contains(key))
+            return -1;
+
+        const auto& val = obj.at(key);
+
+        // Case 1: JSON number (e.g., 10.12345678)
+        if (val.is_number()) {
+            double d = val.as_double();
+            // Round to nearest satoshi
+            return static_cast<int64_t>(std::llround(d * 100000000.0));
+        }
+
+        // Case 2: JSON string (e.g., "10.12345678")
+        if (val.is_string()) {
+            std::string s = val.as_string().c_str();
+
+            // Strip whitespace
+            s.erase(std::remove_if(s.begin(), s.end(), ::isspace), s.end());
+            if (s.empty()) return -1;
+
+            // Optional sign
+            bool neg = false;
+            if (s[0] == '-') { neg = true; s.erase(0, 1); }
+
+            // Split into whole + fraction
+            size_t dot = s.find('.');
+            std::string whole = (dot == std::string::npos) ? s : s.substr(0, dot);
+            std::string frac  = (dot == std::string::npos) ? "" : s.substr(dot + 1);
+
+            // Pad or truncate fractional part to exactly 8 digits
+            if (frac.size() < 8) frac.append(8 - frac.size(), '0');
+            else if (frac.size() > 8) frac = frac.substr(0, 8);
+
+            std::string combined = whole + frac;
+            if (combined.empty()) return -1;
+
+            try {
+                int64_t val = std::stoll(combined);
+                return neg ? -val : val;
+            } catch (...) {
+                return -1;
+            }
+        }
+
+        return -1;
+    }
+
 };
 #endif

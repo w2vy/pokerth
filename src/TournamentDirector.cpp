@@ -127,7 +127,7 @@ void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& t
 #ifdef GETRAW_FIXED
         const auto value = get_val64(vout_obj, "valueSat");
 #else
-        const auto value = get_val64(vout_obj, "value") * 100000000;
+        const auto value = get_val64_from_fixed8(vout_obj, "value");
 #endif
         const auto& script = vout_obj.at("scriptPubKey");
         const auto& addresses = script.at("addresses").as_array();
@@ -156,7 +156,7 @@ void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& t
 
     sendTell(playerid, oss.str());
 
-    if (confirmations <= 2) {
+    if (confirmations < 1) {
         msg = "Not fully confirmed (" + std::to_string(confirmations) + "), try again in 5 minutes. " + short_txid;
         sendTell(playerid, msg);
         return;
@@ -491,7 +491,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                         const std::string url = "/api/tx/" + txid;
 
                         fetcher->async_fetch(host, url,
-                            [self, fetcher, playerid, txid, openGame](boost::system::error_code ec, Txn txn) {
+                            [self, fetcher, playerid, txid, openGame](boost::system::error_code ec, Txn txn) mutable {
                                 if (ec) {
                                     std::cout << "Failed to fetch transaction: " << ec.message() << std::endl;
                                     self->sendTell(playerid, "Transaction verification failed.");
@@ -675,7 +675,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
 
                         // Start async fetch, capturing `self` and `fetcher` to keep them alive
                         fetcher->async_fetch(host, url,
-                            [self, fetcher, playerid, txid, this](boost::system::error_code ec, Txn txn) {
+                            [self, fetcher, playerid, txid, this](boost::system::error_code ec, Txn txn) mutable {
                                 if (ec) {
                                     std::cout << "Failed to fetch transaction: " << ec.message() << std::endl;
                                     self->sendTell(playerid, "Transaction verification failed.");
@@ -749,7 +749,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
 
                         // Start async fetch, capturing `self` and `fetcher` to keep them alive
                         fetcher->async_fetch(host, url,
-                            [self, fetcher, playerid, txid](boost::system::error_code ec, Txn txn) {
+                            [self, fetcher, playerid, txid](boost::system::error_code ec, Txn txn) mutable {
                                 if (ec) {
                                     std::cout << "Failed to fetch transaction: " << ec.message() << std::endl;
                                     self->sendTell(playerid, "Transaction verification failed.");

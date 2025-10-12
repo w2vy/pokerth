@@ -56,13 +56,13 @@ public:
             int attempt = 0;
             HandlerType handler;
 
-            Session(TransactionFetcher* f, std::string h, std::string t, HandlerType&& hnd)
+            Session(TransactionFetcher* f, std::string h, std::string t, HandlerType hnd)
                 : fetcher(f),
                   host(std::move(h)),
                   target(std::move(t)),
                   resolver(f->io_),
                   stream(f->io_, f->ssl_ctx_),
-                  handler(std::forward<HandlerType>(hnd))
+                  handler(std::move(hnd))
             {
                 req.method(boost::beast::http::verb::get);
                 req.version(11);
@@ -175,7 +175,7 @@ public:
             }
         };
 
-        auto session = std::make_shared<Session>(this, host, url, std::forward<Handler>(handler));
+        auto session = std::make_shared<Session>(this, host, url, std::move(handler));
         session->run();
     }
 
