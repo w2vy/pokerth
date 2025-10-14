@@ -472,10 +472,22 @@ void WatcherBot::handle_message(const std::vector<char>& data) {
 
                 auto [first, second] = find_winners();
                 // Set results so TD can see who advances
-                Player Winner = {first->player_id, {}, first->name, 0, 0, 0, 0};
+                FluxResult entry = {};
+                auto res = mytd_->findFluxResult(first->player_id);
+                if (res) {
+                    entry = {res->vin_address, res->paid_flux, res->pot_flux, res->txid, res->vout_index};
+                }
+                Player Winner = {first->player_id, entry, first->name, 0, 0, 0, 0};
+                std::cout << "Winner " << Winner.entryFee.vin_address << std::endl;
                 watchTable_.winners.push_back(Winner);
                 if (watchTable_.info.type == Final) {
-                    Player RunnerUp = {second->player_id, {}, second->name, 0, 0, 0, 0};
+                    entry = {};
+                    auto res = mytd_->findFluxResult(second->player_id);
+                    if (res) {
+                        entry = {res->vin_address, res->paid_flux, res->pot_flux, res->txid, res->vout_index};
+                    }
+                    Player RunnerUp = {second->player_id, entry, second->name, 0, 0, 0, 0};
+                    std::cout << "Runnerup " << RunnerUp.entryFee.vin_address << std::endl;
                     watchTable_.winners.push_back(RunnerUp);
                 }
                 Players.clear(); // Not needed any more, all players (w/txids) are in RegisteredPlayers{}

@@ -10,6 +10,8 @@
 #include "TournamentDirector.h"
 #include <thread>
 
+const std::string botadr = "t1KZURHF1JF84i4JJjXMe3a5tXVoquZhMzf";
+
 std::string printableSessionId(const std::string& sessionId);
 std::string printableErrorReason(ErrorMessage_ErrorReason cause);
 
@@ -46,6 +48,12 @@ std::string format_amount(double value) {
     }
 
     return s;
+}
+
+FluxResult* TournamentDirector::findFluxResult(uint32_t player_id) {
+    auto it = std::find_if(registeredPlayers.begin(), registeredPlayers.end(),
+        [player_id](const auto& p) { return p.first == player_id; });
+    return (it != registeredPlayers.end()) ? &it->second : nullptr;
 }
 
 TournamentDirector::TournamentDirector(boost::asio::io_context& io, const boost::program_options::variables_map& vm, TableManager& tourneyManager)
@@ -113,8 +121,12 @@ void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& t
     for (const auto& vin_entry : vin_array) {
         const auto& vin_obj = vin_entry.as_object();
         vin_value += get_val64(vin_obj, "valueSat");
+#ifdef GETRAW_FIXED
         std::string addr = get_str(vin_obj, "address");
-        if (vin_addr.empty()) vin_addr = addr;
+#else
+        std::string addr = get_str(vin_obj, "addr");
+#endif
+       if (vin_addr.empty()) vin_addr = addr;
         else if (addr != vin_addr) {
             vin_addr.clear();
             break;
@@ -145,13 +157,11 @@ void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& t
     }
 
     const int64_t fee_paid = vin_value - vout_value;
-    const double paid = static_cast<double>(fee_paid) / 1e8;
     const double pot = static_cast<double>(pot_fee) / 1e8;
 
     std::cout << "Player " << vin_addr << " vout " << vout_index << " txid " << txid << std::endl;
     std::ostringstream oss;
-    oss << " Paid: " << format_amount(paid)
-        << " Flux Add to Pot: " << format_amount(pot)
+    oss << " Flux Add to Pot: " << format_amount(pot)
         << " Flux, vout " << vout_index;
 
     sendTell(playerid, oss.str());
@@ -164,6 +174,102 @@ void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& t
 
     // ⬇️ Return values via callback
     on_result(FluxResult{vin_addr, fee_paid, pot_fee, txid, vout_index});
+}
+
+/**
+ * Verify that the given txid exists in the Flux explorer response.
+ *
+ * @param io            Boost ASIO io_context
+ * @param ssl_ctx       SSL context
+ * @param txid          The transaction ID to verify
+ * @param playerid      The player this tx belongs to (for feedback)
+ * @param sendTellFn    A lambda or std::function<void(uint32_t, const std::string&)> to message the player
+ * @param onVerified    Called only if txid is found and valid: onVerified(true)
+ *                      If not found or invalid: onVerified(false)
+ */
+void verify_txid_unspent(
+    boost::asio::io_context& io,
+    boost::asio::ssl::context& ssl_ctx,
+    const std::string& txid,
+    uint32_t playerid,
+    std::function<void(uint32_t, const std::string&)> sendTellFn,
+    std::function<void(bool)> onVerified)
+{
+    const std::string host = "api.runonflux.io";
+    const std::string url  = "/explorer/utxo?address=" + botadr;
+
+    auto fetcher = std::make_shared<TransactionFetcher>(io, ssl_ctx);
+
+    fetcher->async_fetch(host, url,
+        [fetcher, txid, playerid, sendTellFn, onVerified](boost::system::error_code ec, Txn txn) mutable {
+            if (ec) {
+                std::cout << "⚠️  verify_txid_unspent: failed to fetch explorer data: "
+                          << ec.message() << std::endl;
+                sendTellFn(playerid, "Unable to reach Flux explorer, please try again later.");
+                onVerified(false);
+                return;
+            }
+
+            if (!txn.raw.is_object()) {
+                std::cout << "⚠️  verify_txid_unspent: invalid JSON structure\n";
+                sendTellFn(playerid, "Invalid data from explorer.");
+                onVerified(false);
+                return;
+            }
+
+            const auto& root = txn.raw.as_object();
+
+            if (!root.contains("status") || !root.contains("data")) {
+                std::cout << "⚠️  verify_txid_unspent: missing expected fields\n";
+                sendTellFn(playerid, "Malformed explorer response.");
+                onVerified(false);
+                return;
+            }
+
+            const std::string status = root.at("status").as_string().c_str();
+            if (status != "success") {
+                std::cout << "❌  verify_txid_unspent: status = " << status << std::endl;
+                sendTellFn(playerid, "Explorer returned error status.");
+                onVerified(false);
+                return;
+            }
+
+            if (!root.at("data").is_array()) {
+                std::cout << "⚠️  verify_txid_unspent: data not array\n";
+                sendTellFn(playerid, "Unexpected explorer data format.");
+                onVerified(false);
+                return;
+            }
+
+            const auto& arr = root.at("data").as_array();
+            bool found = false;
+            for (const auto& item : arr) {
+                if (!item.is_object()) continue;
+                const auto& obj = item.as_object();
+                if (obj.contains("txid") && obj.at("txid").is_string()) {
+                    std::string entry_txid = obj.at("txid").as_string().c_str();
+                    if (entry_txid == txid) {
+                        found = true;
+                        int64_t satoshis = obj.contains("satoshis") && obj.at("satoshis").is_int64()
+                            ? obj.at("satoshis").as_int64() : -1;
+                        int confirmations = obj.contains("confirmations") && obj.at("confirmations").is_int64()
+                            ? static_cast<int>(obj.at("confirmations").as_int64()) : -1;
+                        std::cout << "✅  Explorer verified txid " << txid
+                                  << " (" << confirmations << " conf, "
+                                  << satoshis << " sat)\n";
+                        break;
+                    }
+                }
+            }
+
+            if (!found) {
+                std::cout << "❌  verify_txid_unspent: txid " << txid << " not found in utxo\n";
+                sendTellFn(playerid, "Transaction not found in unspent list.");
+                onVerified(false);
+            } else {
+                onVerified(true);
+            }
+        });
 }
 
 void TournamentDirector::endTourney(void) {
@@ -565,7 +671,7 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                             if (ndx >= registeredPlayers.size()) break;
                             else {
                                 auto& [pid, entryFee] = registeredPlayers[ndx];
-                                std::cout << "Add Player " << pid << " txid " << entryFee.txid << std::endl;
+                                std::cout << "Add Player " << pid << " txid " << entryFee.txid  << " for " << entryFee.vin_address << std::endl;
                                 Player rPlayer = {pid, entryFee, "", 0, 0, 0, 0};
                                 table.invite.push_back(rPlayer);
                                 if (++processed >= np) break;
@@ -664,17 +770,11 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                     } else {
                         auto self = std::static_pointer_cast<TournamentDirector>(shared_from_this());
 
-                        // Make a shared pointer to TransactionFetcher
                         auto fetcher = std::make_shared<TransactionFetcher>(io_context_, ssl_ctx_);
+                        const std::string next_host = "explorer.runonflux.io";
+                        const std::string next_url = "/api/tx/" + txid;
 
-                        // Define the target URL
-//                        std::string host = "api.runonflux.io";
-//                        std::string url = "/daemon/getrawtransaction?verbose=1&txid=" + txid;
-                        const std::string host = "explorer.runonflux.io";
-                        const std::string url = "/api/tx/" + txid;
-
-                        // Start async fetch, capturing `self` and `fetcher` to keep them alive
-                        fetcher->async_fetch(host, url,
+                        fetcher->async_fetch(next_host, next_url,
                             [self, fetcher, playerid, txid, this](boost::system::error_code ec, Txn txn) mutable {
                                 if (ec) {
                                     std::cout << "Failed to fetch transaction: " << ec.message() << std::endl;
@@ -682,40 +782,52 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                                     return;
                                 }
                                 std::cout << "Transaction fetch success for player " << playerid << std::endl;
-                                self->validateFluxFee(playerid, txid, txn, [this, playerid, txid](FluxResult result) {
-                                    std::cout << "Received result for player address: " << result.vin_address << std::endl;
-                                    if (result.paid_flux < entryFee*100000000) {
-                                        std::ostringstream oss;
-                                        oss << "The entry fee is " << format_amount(entryFee)
-                                            << " Flux, your txid is for " << format_amount(result.paid_flux)
-                                            << " Flux";
-                                        std::string msg = oss.str();
-                                        sendTell(playerid, msg);
-                                    } else {
-                                        bool idExists = std::any_of(registeredPlayers.begin(), registeredPlayers.end(),
-                                                                    [&](const auto& entry) { return entry.first == playerid; });
-                                        bool addrExists = std::any_of(registeredPlayers.begin(), registeredPlayers.end(),
-                                                                    [&](const auto& entry) { return entry.second.txid == txid; });
-                                        if (idExists) {
-                                            sendTell(playerid, "You have already entered, you will receive an invite when the game starts.");
-                                        } else if (addrExists) {
+                                self->validateFluxFee(playerid, txid, txn,
+                                    [this, playerid, txid](FluxResult result) {
+                                        std::cout << "Received result for player address: " << result.vin_address << std::endl;
+                                        if (result.paid_flux < entryFee * 100000000) {
                                             std::ostringstream oss;
-                                            oss << "Your txid has been used by another player " << playerid << " use your own txid";
+                                            oss << "The entry fee is " << format_amount(entryFee)
+                                                << " Flux, your txid is for " << format_amount(result.paid_flux)
+                                                << " Flux";
                                             sendTell(playerid, oss.str());
                                         } else {
-                                            std::cout << "Adding player " << playerid << " to registration and txid " << txid << std::endl;
-                                            registeredPlayers.emplace_back(playerid, result);
-                                            sendTell(playerid, "Your entry has been accepted, you will receive an invite when the game starts.");
-                                            std::cout << "Fee Paid " << result.paid_flux << " pot " << result.pot_flux << std::endl;
-                                            std::ostringstream oss;
-                                            oss << "There are " << registeredPlayers.size() << " registered";
-                                            std::cout << oss.str() << std::endl;
-                                            sendLobby(oss.str());
+                                            // ✅ Now confirm txid is visible on explorer
+                                            verify_txid_unspent(io_context_, ssl_ctx_, txid, playerid,
+                                                [this](uint32_t pid, const std::string& msg) {
+                                                    this->sendTell(pid, msg);
+                                                },
+                                                [this, playerid, txid, result](bool verified) {
+                                                    if (!verified) {
+                                                        sendTell(playerid, "That txid appears to already have been used.");
+                                                        std::cout << "Explorer verification failed for txid " << txid << std::endl;
+                                                        return; // 🔴 Abort
+                                                    }
+
+                                                    // ✅ Continue registration only if verified
+                                                    bool idExists = std::any_of(registeredPlayers.begin(), registeredPlayers.end(),
+                                                                                [&](const auto& e) { return e.first == playerid; });
+                                                    bool addrExists = std::any_of(registeredPlayers.begin(), registeredPlayers.end(),
+                                                                                [&](const auto& e) { return e.second.txid == txid; });
+
+                                                    if (idExists) {
+                                                        sendTell(playerid, "You have already entered, you will receive an invite when the game starts.");
+                                                    } else if (addrExists) {
+                                                        std::ostringstream oss;
+                                                        oss << "Your txid has been used by another player " << playerid << " use your own txid";
+                                                        sendTell(playerid, oss.str());
+                                                    } else {
+                                                        std::cout << "Adding player " << playerid << " to registration (txid " << txid << ")\n";
+                                                        registeredPlayers.emplace_back(playerid, result);
+                                                        sendTell(playerid, "Your entry has been accepted, you will receive an invite when the game starts.");
+                                                        std::ostringstream oss;
+                                                        oss << "There are " << registeredPlayers.size() << " registered";
+                                                        sendLobby(oss.str());
+                                                    }
+                                                });
                                         }
-                                    }
-                                });
-                            }
-                        );
+                                    });
+                            });
                     }
                 }
                 if (chat.chattext().compare(0, 5, "send ") == 0) {
