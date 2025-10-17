@@ -200,8 +200,14 @@ void WatcherBot::createGame(std::string name, std::string password, NetGameInfo_
     NetGameInfo *tmpGameInfo = joinNew->mutable_gameinfo();
     tmpGameInfo->set_netgametype(NetGameInfo_NetGameType_normalGame);
     tmpGameInfo->set_maxnumplayers(nPlayers);
+#if 0
+    tmpGameInfo->set_raiseintervalmode(NetGameInfo_RaiseIntervalMode_raiseOnMinutes);
+    tmpGameInfo->set_endraisemode(NetGameInfo_EndRaiseMode_doubleBlinds);
+    tmpGameInfo->set_raiseeveryminutes(15);
+#else
     tmpGameInfo->set_raiseintervalmode(NetGameInfo_RaiseIntervalMode_raiseOnHandNum);
     tmpGameInfo->set_raiseeveryhands(5);
+#endif
     tmpGameInfo->set_endraisemode(NetGameInfo_EndRaiseMode_keepLastBlind);
     tmpGameInfo->set_proposedguispeed(5);
     tmpGameInfo->set_delaybetweenhands(6);
@@ -480,7 +486,7 @@ void WatcherBot::handle_message(const std::vector<char>& data) {
                 Player Winner = {first->player_id, entry, first->name, 0, 0, 0, 0};
                 std::cout << "Winner " << Winner.entryFee.vin_address << std::endl;
                 watchTable_.winners.push_back(Winner);
-                if (watchTable_.info.type == Final) {
+                if (watchTable_.info.type == Final || watchTable_.info.type == Qualifier) {
                     entry = {};
                     auto res = mytd_->findFluxResult(second->player_id);
                     if (res) {

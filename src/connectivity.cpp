@@ -408,7 +408,7 @@ main(int argc, char *argv[])
 								}
 								if (chat.chattext().find(" is open! Type: /msg TD join <txid>") != std::string::npos) {
 									if (txid.size()) {
-										int delay = std::rand() % 10 + 1; // gives a value from 1 to 10
+										int delay = std::rand() % 30 + 1; // gives a value from 1 to 10
 										sleep(delay);
 										sendTell(socket, msg, player_id, "join " + txid);
 									}
