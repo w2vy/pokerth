@@ -215,6 +215,7 @@ void WatcherBot::createGame(std::string name, std::string password, NetGameInfo_
     tmpGameInfo->set_endraisesmallblindvalue(0);
     tmpGameInfo->set_firstsmallblind(50);
     tmpGameInfo->set_startmoney(5000);
+    start_money = tmpGameInfo->startmoney();
     tmpGameInfo->set_gamename(name);
     tmpGameInfo->set_netgametype(gameType);
     if (!password.empty()) {
@@ -357,11 +358,11 @@ void WatcherBot::handle_message(const std::vector<char>& data) {
             if (ack.has_gameid()) {
                 int gameid = ack.gameid();
                 std::string game_name = ack.gameinfo().gamename();
+                if (ack.has_gameinfo()) {
+                    start_money = ack.gameinfo().startmoney();
+                }
                 if (speculate) {
                     std::cout << "Joined game " << watchTable_.info.name << " (" << watchTable_.info.game_id << ") as spectator!" << std::endl;
-                    if (ack.has_gameinfo()) {
-                        start_money = ack.gameinfo().startmoney();
-                    }
                 } else {
                     if (ack.areyougameadmin()) {
                         std::cout << "JoinGame Ack WatcherBot " << gameid << " Table " << game_name << std::endl;
@@ -476,25 +477,29 @@ void WatcherBot::handle_message(const std::vector<char>& data) {
                     std::cout << "The winner is: " << getPlayerName(endGame.winnerplayerid()) << std::endl;
                 }
 
-                auto [first, second] = find_winners();
-                // Set results so TD can see who advances
-                FluxResult entry = {};
-                auto res = mytd_->findFluxResult(first->player_id);
-                if (res) {
-                    entry = {res->vin_address, res->paid_flux, res->pot_flux, res->txid, res->vout_index};
-                }
-                Player Winner = {first->player_id, entry, first->name, 0, 0, 0, 0};
-                std::cout << "Winner " << Winner.entryFee.vin_address << std::endl;
-                watchTable_.winners.push_back(Winner);
-                if (watchTable_.info.type == Final || watchTable_.info.type == Qualifier) {
-                    entry = {};
-                    auto res = mytd_->findFluxResult(second->player_id);
-                    if (res) {
-                        entry = {res->vin_address, res->paid_flux, res->pot_flux, res->txid, res->vout_index};
+                if (Players.size() > 1) {
+                    auto [first, second] = find_winners();
+                    // Set results so TD can see who advances
+                    FluxResult entry = {};
+                    if (first) {
+                        auto res = mytd_->findFluxResult(first->player_id);
+                        if (res) {
+                            entry = {res->vin_address, res->paid_flux, res->pot_flux, res->txid, res->vout_index};
+                        }
+                        Player Winner = {first->player_id, entry, first->name, 0, 0, 0, 0};
+                        std::cout << "Winner " << Winner.entryFee.vin_address << std::endl;
+                        watchTable_.winners.push_back(Winner);
+                        if (second && (watchTable_.info.type == Final || watchTable_.info.type == Qualifier)) {
+                            entry = {};
+                            auto res = mytd_->findFluxResult(second->player_id);
+                            if (res) {
+                                entry = {res->vin_address, res->paid_flux, res->pot_flux, res->txid, res->vout_index};
+                            }
+                            Player RunnerUp = {second->player_id, entry, second->name, 0, 0, 0, 0};
+                            std::cout << "Runnerup " << RunnerUp.entryFee.vin_address << std::endl;
+                            watchTable_.winners.push_back(RunnerUp);
+                        }
                     }
-                    Player RunnerUp = {second->player_id, entry, second->name, 0, 0, 0, 0};
-                    std::cout << "Runnerup " << RunnerUp.entryFee.vin_address << std::endl;
-                    watchTable_.winners.push_back(RunnerUp);
                 }
                 Players.clear(); // Not needed any more, all players (w/txids) are in RegisteredPlayers{}
                 tourneyManager_.updateState(mytd_, watchTable_, TableState::Finished);

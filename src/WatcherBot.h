@@ -38,7 +38,7 @@ private:
     TableManager& tourneyManager_;
     uint32_t watcherBotID;
     std::unordered_map<int, Player> Players;
-    std::int32_t start_money;
+    std::int32_t start_money = 0;
 
     struct Pot {
         int amount;
@@ -110,10 +110,10 @@ private:
     std::pair<Player*, Player*> DetermineTopTwoPlayers(std::vector<Player*>& players,
                                                        std::vector<Pot>& pots)
     {
-        if (players.size() < 2) {
-            std::cout << "Not enough players in players list, found " << players.size() << std::endl;
-            return {nullptr, nullptr};
-        }
+        // if (players.size() < 2) {
+        //     std::cout << "Not enough players in players list, found " << players.size() << std::endl;
+        //     return {nullptr, nullptr};
+        // }
         if (players.size() == 2) {
             Player* first = GetBestPlayer(players);
             Player* second = (first == players[0]) ? players[1] : players[0];

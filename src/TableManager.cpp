@@ -3,15 +3,14 @@
 #include <stdexcept>
 
 Table& TableManager::addTable(const std::string& name, const std::string& watcher) {
-    size_t id = tables.size();
     Table table;
     uint32_t suffix_id = getNewSuffix();
     //table.mytd = mytd;
     table.info.name = name + " "  + std::to_string(suffix_id);
     table.info.watcher = watcher + " "  + std::to_string(suffix_id);
     table.invite = std::vector<Player>();
-    tables[id] = table;
-    return tables[id];
+    tables[suffix_id] = table;
+    return tables[suffix_id];
 }
 
 uint32_t TableManager::getNewSuffix() {
@@ -23,9 +22,12 @@ uint32_t TableManager::getNewSuffix() {
 }
 
 Table& TableManager::getTable(size_t id) {
-    auto it = tables.find(id);
-    if (it == tables.end()) {
+    if (id >= tables.size()) {
         throw std::out_of_range("Table not found");
+    }
+    auto it = tables.begin();
+    for (size_t idx = 0; idx < id; ++idx) {
+        ++it;
     }
     return it->second;
 }
@@ -69,7 +71,14 @@ Table& TableManager::findTableByGameId(uint32_t gameId) {
 }
 
 void TableManager::removeTable(size_t id) {
-    tables.erase(id);
+    if (id >= tables.size()) {
+        return;
+    }
+    auto it = tables.begin();
+    for (size_t idx = 0; idx < id; ++idx) {
+        ++it;
+    }
+    tables.erase(it);
 }
 
 void TableManager::removeTable(const Table& t) {
