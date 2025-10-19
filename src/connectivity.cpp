@@ -120,7 +120,9 @@ sendMessage(tcp::socket &socket, boost::shared_ptr<NetPacket> packet)
 		google::protobuf::uint8 *buf = new google::protobuf::uint8[packetSize + NET_HEADER_SIZE];
 		*((uint32_t *)buf) = htonl(packetSize);
 		packet->GetMsg()->SerializeWithCachedSizesToArray(&buf[NET_HEADER_SIZE]);
-		retVal = socket.send(boost::asio::buffer(buf, packetSize + NET_HEADER_SIZE)) != 0;
+		boost::system::error_code write_error;
+		std::size_t bytes_written = boost::asio::write(socket, boost::asio::buffer(buf, packetSize + NET_HEADER_SIZE), write_error);
+		retVal = !write_error && bytes_written == packetSize + NET_HEADER_SIZE;
 		delete[] buf;
 	}
 	return retVal;
@@ -266,9 +268,14 @@ main(int argc, char *argv[])
 		boost::timers::portable::microsec_timer perfTimer;
 		boost::asio::io_context io_service;
 		boost::asio::ip::tcp::socket socket(io_service);
-		boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address(server), std::stoi( port ));
+		boost::asio::ip::tcp::resolver resolver(io_service);
 		boost::system::error_code error;
-		socket.connect(endpoint, error);
+		boost::asio::ip::tcp::resolver::results_type endpoints = resolver.resolve(server, port, error);
+		if (error) {
+			cout << "Name lookup of " << server << " failed" << endl;
+			return 1;
+		}
+		boost::asio::connect(socket, endpoints, error);
 
 		if (error) {
 			cout << "Connect failed" << endl;
@@ -300,7 +307,7 @@ main(int argc, char *argv[])
 			int guestId = std::rand() % 99999 + 1; // gives a value from 1 to 99999
 			char guest[64];
 			std::snprintf(guest, sizeof(guest), "Guest%05d", guestId);
-			std::string username = guest;
+			username = guest;
 			netInit->set_login(InitMessage_LoginType_guestLogin);
 			netInit->set_nickname(username);
 			if (!sendMessage(socket, msg)) {
@@ -369,6 +376,9 @@ main(int argc, char *argv[])
 					cout << "Auth response failed" << endl;
 					return 1;
 				}
+			} else {
+				cout << "gsasl client start failed" << endl;
+				return 1;
 			}
 		}
 
@@ -558,4 +568,3 @@ main(int argc, char *argv[])
 
 	return 0;
 }
-
