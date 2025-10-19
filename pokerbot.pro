@@ -22,16 +22,22 @@ INCLUDEPATH += . \
 DEPENDPATH += . \
 		src
 
-INCLUDEPATH += /usr/include/fmt
 INCLUDEPATH += /usr/local/include
 
 # Input
 HEADERS += \
+		src/Table.h \
+		src/TableManager.h \
+		src/TournamentDirector.h \
+		src/WatcherBot.h \
 		src/game_defs.h \
 		src/net/netpacket.h \
 		src/third_party/protobuf/pokerth.pb.h
 
 SOURCES += \
+		src/TableManager.cpp \
+		src/TournamentDirector.cpp \
+		src/WatcherBot.cpp \
 		src/pokerbot.cpp \
 		src/net/common/netpacket.cpp \
 		src/third_party/protobuf/pokerth.pb.cc
@@ -84,14 +90,14 @@ unix : !mac {
 	kFreeBSD = $$find(UNAME, "kFreeBSD")
 
 	LIBS += $$BOOST_LIBS
-	LIBS += -lprotobuf -lgsasl -lgcrypt -lidn
+	LIBS += -lprotobuf -lgsasl -lidn
 	LIBS += -lssl -lcrypto
-	LIBS += -lboost_json -lfmt
+	LIBS += -lboost_json
 	LIB_DIRS += /usr/local/lib
 
 	# Enable C++17 (required for Boost.JSON)
-	#CONFIG += c++17
-
+	CONFIG += c++17
+	
 	#### INSTALL ####
 
 	binary.path += $${PREFIX}/bin/

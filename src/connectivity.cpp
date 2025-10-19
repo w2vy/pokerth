@@ -51,13 +51,17 @@ boost::array<char, BUF_SIZE> recBuf;
 size_t recBufPos = 0;
 boost::array<char, BUF_SIZE> sendBuf;
 
-static int
-net_packet_print_to_string(const void *buffer, size_t size, void *packetStr)
-{
-	string *tmpString = (string *)packetStr;
-	*tmpString += string((const char *)buffer, size);
-	return 0;
-}
+int yourPlayerID = 0;
+int defaultRaise = 0;
+int handNumber = 0;
+
+// static int
+// net_packet_print_to_string(const void *buffer, size_t size, void *packetStr)
+// {
+// 	string *tmpString = (string *)packetStr;
+// 	*tmpString += string((const char *)buffer, size);
+// 	return 0;
+// }
 
 boost::shared_ptr<NetPacket>
 receiveMessage(tcp::socket &socket)
@@ -122,6 +126,76 @@ sendMessage(tcp::socket &socket, boost::shared_ptr<NetPacket> packet)
 	return retVal;
 }
 
+void joinGame(tcp::socket &socket, boost::shared_ptr<NetPacket> msg, int gameid) {
+	std::cout << "Join Game " << gameid << std::endl;
+	msg.reset(new NetPacket);
+	msg->GetMsg()->set_messagetype(PokerTHMessage_PokerTHMessageType_Type_JoinExistingGameMessage);
+	JoinExistingGameMessage* join = msg->GetMsg()->mutable_joinexistinggamemessage();
+	join->set_gameid(gameid);
+	join->set_autoleave(true);
+	sendMessage(socket, msg);
+}
+
+void sendLobby(tcp::socket &socket, boost::shared_ptr<NetPacket> msg, std::string shout) {
+	std::cout << shout << std::endl;
+	msg.reset(new NetPacket);
+	msg->GetMsg()->set_messagetype(PokerTHMessage_PokerTHMessageType_Type_ChatRequestMessage);
+	ChatRequestMessage* ChatReq = msg->GetMsg()->mutable_chatrequestmessage();
+	ChatReq->set_chattext(shout);
+	sendMessage(socket, msg);
+}
+
+void sendTell(tcp::socket &socket, boost::shared_ptr<NetPacket> msg, uint32_t playerid, std::string tell) {
+	msg.reset(new NetPacket);
+	msg->GetMsg()->set_messagetype(PokerTHMessage_PokerTHMessageType_Type_ChatRequestMessage);
+	ChatRequestMessage* ChatReq = msg->GetMsg()->mutable_chatrequestmessage();
+	ChatReq->set_chattext(tell);
+	ChatReq->set_targetplayerid(playerid);
+	sendMessage(socket, msg);
+}
+
+std::string gameState(NetGameState state) {
+	switch (state) {
+		case netStatePreflop:
+			return "preFlop";
+		case netStateFlop:
+			return "Flop";
+		case netStateTurn:
+			return "Turn";
+		case netStateRiver:
+			return "River";
+		case netStatePreflopSmallBlind:
+			return "Small Blind";
+		case netStatePreflopBigBlind:
+			return "Big Blind";
+		default:
+			break;
+	}
+	return "Unknown Game State";
+}
+
+std::string playerAction(NetPlayerAction action) {
+	switch (action) {
+		case netActionNone:
+			return "None";
+		case netActionFold:
+			return "Fold";
+		case netActionCheck:
+			return "Check";
+		case netActionCall:
+			return "Call";
+		case netActionBet:
+			return "Bet";
+		case netActionRaise:
+			return "Raise";
+		case netActionAllIn:
+			return "All In";
+		default:
+			break;
+	}
+	return "Unknown Player Action";
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -135,7 +209,8 @@ main(int argc, char *argv[])
 		("server,s", po::value<string>(), "PokerTH server name")
 		("spasswd,S", po::value<string>(), "PokerTH Server Password")
 		("port,P", po::value<string>(), "PokerTH server port")
-		("mode,m", po::value<int>(), "set mode (0=connection test, 1=lag test)")
+		("mode,m", po::value<int>(), "set mode (0=connection test, 1=lag test, 2=invite test)")
+		("txid,t", po::value<string>(), "txid for join command")
 		("username,u", po::value<string>(), "user name used for test")
 		("password,p", po::value<string>(), "password used for test")
 		;
@@ -167,6 +242,10 @@ main(int argc, char *argv[])
 		string spasswd;
 		if (vm.count("spasswd")) {
 			spasswd = vm["spasswd"].as<string>();
+		}
+		string txid = "";
+		if (vm.count("txid")) {
+			txid = vm["txid"].as<string>();
 		}
 		// Initialise gsasl.
 		Gsasl *authContext;
@@ -299,59 +378,178 @@ main(int argc, char *argv[])
 			cout << "Init ack failed" << endl;
 			return 1;
 		}
+		yourPlayerID = msg->GetMsg()->initackmessage().yourplayerid();
 
 		if (mode == 1) {
 			cout << "Init.value " << perfTimer.elapsed().total_milliseconds() << endl;
 		}
 		perfTimer.restart();
 
-		// Send create game
-		msg.reset(new NetPacket);
-		msg->GetMsg()->set_messagetype(PokerTHMessage_PokerTHMessageType_Type_JoinNewGameMessage);
-		JoinNewGameMessage *joinNew = msg->GetMsg()->mutable_joinnewgamemessage();
-		joinNew->set_autoleave(false);
-		NetGameInfo *tmpGameInfo = joinNew->mutable_gameinfo();
-		string tmpGameName("_perftest_do_not_join_" + username);
-		tmpGameInfo->set_netgametype(NetGameInfo_NetGameType_normalGame);
-		tmpGameInfo->set_maxnumplayers(10);
-		tmpGameInfo->set_raiseintervalmode(NetGameInfo_RaiseIntervalMode_raiseOnHandNum);
-		tmpGameInfo->set_raiseeveryhands(5);
-		tmpGameInfo->set_endraisemode(NetGameInfo_EndRaiseMode_keepLastBlind);
-		tmpGameInfo->set_proposedguispeed(5);
-		tmpGameInfo->set_delaybetweenhands(6);
-		tmpGameInfo->set_playeractiontimeout(10);
-		tmpGameInfo->set_endraisesmallblindvalue(0);
-		tmpGameInfo->set_firstsmallblind(50);
-		tmpGameInfo->set_startmoney(2000);
-		tmpGameInfo->set_gamename(tmpGameName);
-		string tmpGamePassword("blah123");
-		joinNew->set_password(tmpGamePassword);
-		if (!sendMessage(socket, msg)) {
-			cout << "Create game failed" << endl;
-			return 1;
-		}
-		// Receive join game ack
-		do {
-			msg = receiveMessage(socket);
-			if (!msg) {
-				cout << "Receive in lobby failed" << endl;
-				return 1;
+		if (mode == 2) { // Test pokerbot, listen for join announcement, wait for invite and leave game when finished
+			bool running = true;
+			while (running) {
+				msg = receiveMessage(socket);
+				if (!msg) {
+					cout << "Receive in lobby failed" << endl;
+					break;
+				}
+				PokerTHMessage *pmsg = msg->GetMsg();
+				if (pmsg->messagetype() == PokerTHMessage_PokerTHMessageType_Type_ErrorMessage) {
+					cout << "Received error" << endl;
+				} else {
+					switch (pmsg->messagetype()) {
+						case PokerTHMessage_PokerTHMessageType_Type_ChatMessage: {
+							ChatMessage chat = pmsg->chatmessage();
+							std::cout << "Received Chat: " << chat.chattext() << std::endl;
+							if (chat.chattype() == ChatMessage_ChatType_chatTypeLobby) {
+								int player_id = chat.playerid();
+								if (chat.chattext() == "exit") {
+									running = false;
+								}
+								if (chat.chattext().find(" is open! Type: /msg TD join <txid>") != std::string::npos) {
+									if (txid.size()) {
+										int delay = std::rand() % 30 + 1; // gives a value from 1 to 10
+										sleep(delay);
+										sendTell(socket, msg, player_id, "join " + txid);
+									}
+								}
+								else if (chat.chattext().find(" is open! Type: /msg TD join") != std::string::npos) {
+									int delay = std::rand() % 10 + 1; // gives a value from 1 to 30
+									sleep(delay);
+									sendTell(socket, msg, player_id, "join");
+								}
+							}
+						}
+						break;
+						case PokerTHMessage_PokerTHMessageType_Type_InviteNotifyMessage: {
+							InviteNotifyMessage inv = pmsg->invitenotifymessage();
+							int gameid = inv.gameid();
+							joinGame(socket, msg, gameid);
+						}
+						break;
+						case PokerTHMessage_PokerTHMessageType_Type_GameStartInitialMessage: {
+							handNumber = 0;
+							std::cout << "Game Start Initial" << std::endl;
+						}
+						break;
+						case PokerTHMessage_PokerTHMessageType_Type_HandStartMessage: {
+							handNumber++;
+							std::cout << "Hand " << handNumber << " Start" << std::endl;
+						}
+						break;
+						case PokerTHMessage_PokerTHMessageType_Type_PlayersTurnMessage: {
+							PlayersTurnMessage turn = pmsg->playersturnmessage();
+							int gameid = turn.gameid();
+							int playerid = turn.playerid();
+							NetGameState state = turn.gamestate();
+							std::cout << "Player Turn " << playerid << " Game " << gameid << " " << gameState(state) << std::endl;
+							int move = std::rand() % 8;
+							//int delay = std::rand() % 5 + 1;
+							NetPlayerAction action = netActionNone;
+							int bet = 0;
+							if (playerid == yourPlayerID) {
+								//sleep(delay);
+								if (move == 0) {
+									// Fold
+									action = netActionFold;
+								} else {
+									// Raise
+									action = netActionRaise;
+									bet = defaultRaise;
+								}
+								std::cout << "Make Move " << playerAction(action) << " Bet " << bet << std::endl;
+								msg.reset(new NetPacket);
+								msg->GetMsg()->set_messagetype(PokerTHMessage_PokerTHMessageType_Type_MyActionRequestMessage);
+								MyActionRequestMessage *req = msg->GetMsg()->mutable_myactionrequestmessage();
+								req->set_gameid(gameid);
+								req->set_handnum(handNumber);
+								req->set_gamestate(state);
+								req->set_myaction(action);
+								req->set_myrelativebet(bet);
+								sendMessage(socket, msg);
+							}
+						}
+						break;
+						case PokerTHMessage_PokerTHMessageType_Type_YourActionRejectedMessage: {
+							YourActionRejectedMessage rej = pmsg->youractionrejectedmessage();
+							int gameid = rej.gameid();
+							NetGameState state = rej.gamestate();
+								std::cout << "Make Move rejected FOLD" << std::endl;
+								msg.reset(new NetPacket);
+								msg->GetMsg()->set_messagetype(PokerTHMessage_PokerTHMessageType_Type_MyActionRequestMessage);
+								MyActionRequestMessage *req = msg->GetMsg()->mutable_myactionrequestmessage();
+								req->set_gameid(gameid);
+								req->set_handnum(handNumber);
+								req->set_gamestate(state);
+								req->set_myaction(netActionFold);
+								req->set_myrelativebet(0);
+								sendMessage(socket, msg);
+						}
+						break;
+						case PokerTHMessage_PokerTHMessageType_Type_PlayersActionDoneMessage: {
+							PlayersActionDoneMessage done = pmsg->playersactiondonemessage();
+							int minRaise = done.minimumraise();
+							if (minRaise > 100000) minRaise = 0;
+							std::cout << "Player Done " << done.playerid() << " Game " << done.gameid() << " " << gameState(done.gamestate())
+								<< " " << playerAction(done.playeraction()) << " Total " << done.totalplayerbet()
+								<< " Highest " << done.highestset() << " Min Raise " << done.minimumraise() << std::endl;
+							if (minRaise > 0) defaultRaise = minRaise;
+						}
+						break;
+						default:
+							break;
+					}
+				}
 			}
-			if (msg->GetMsg()->messagetype() == PokerTHMessage_PokerTHMessageType_Type_ErrorMessage) {
-				cout << "Received error" << endl;
-				return 1;
-			} else if (msg->GetMsg()->messagetype() == PokerTHMessage_PokerTHMessageType_Type_JoinGameFailedMessage) {
-				cout << "Join game ack failed" << endl;
-				return 1;
-			}
-		} while (msg->GetMsg()->messagetype() != PokerTHMessage_PokerTHMessageType_Type_JoinGameAckMessage);
-
-		if (mode == 1) {
-			cout << "CreateGame.value " << perfTimer.elapsed().total_milliseconds() << endl;
 		} else {
-			cout << "Success" << endl;
+			// Send create game
+			msg.reset(new NetPacket);
+			msg->GetMsg()->set_messagetype(PokerTHMessage_PokerTHMessageType_Type_JoinNewGameMessage);
+			JoinNewGameMessage *joinNew = msg->GetMsg()->mutable_joinnewgamemessage();
+			joinNew->set_autoleave(false);
+			NetGameInfo *tmpGameInfo = joinNew->mutable_gameinfo();
+			string tmpGameName("_perftest_do_not_join_" + username);
+			tmpGameInfo->set_netgametype(NetGameInfo_NetGameType_normalGame);
+			tmpGameInfo->set_maxnumplayers(10);
+			tmpGameInfo->set_raiseintervalmode(NetGameInfo_RaiseIntervalMode_raiseOnHandNum);
+			tmpGameInfo->set_raiseeveryhands(5);
+			tmpGameInfo->set_endraisemode(NetGameInfo_EndRaiseMode_keepLastBlind);
+			tmpGameInfo->set_proposedguispeed(5);
+			tmpGameInfo->set_delaybetweenhands(6);
+			tmpGameInfo->set_playeractiontimeout(10);
+			tmpGameInfo->set_endraisesmallblindvalue(0);
+			tmpGameInfo->set_firstsmallblind(50);
+			tmpGameInfo->set_startmoney(2000);
+			tmpGameInfo->set_gamename(tmpGameName);
+			string tmpGamePassword("blah123");
+			joinNew->set_password(tmpGamePassword);
+			if (!sendMessage(socket, msg)) {
+				cout << "Create game failed" << endl;
+				return 1;
+			}
+			// Receive join game ack
+			do {
+				msg = receiveMessage(socket);
+				if (!msg) {
+					cout << "Receive in lobby failed" << endl;
+					return 1;
+				}
+				if (msg->GetMsg()->messagetype() == PokerTHMessage_PokerTHMessageType_Type_ErrorMessage) {
+					cout << "Received error" << endl;
+					return 1;
+				} else if (msg->GetMsg()->messagetype() == PokerTHMessage_PokerTHMessageType_Type_JoinGameFailedMessage) {
+					cout << "Join game ack failed" << endl;
+					return 1;
+				}
+			} while (msg->GetMsg()->messagetype() != PokerTHMessage_PokerTHMessageType_Type_JoinGameAckMessage);
+
+			if (mode == 1) {
+				cout << "CreateGame.value " << perfTimer.elapsed().total_milliseconds() << endl;
+			} else {
+				cout << "Success" << endl;
+			}
+			perfTimer.restart();
 		}
-		perfTimer.restart();
 		gsasl_done(authContext);
 	//} catch (...) {
 	//	cout << "Exception caught" << endl;

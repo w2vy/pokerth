@@ -21,8 +21,10 @@ namespace po = boost::program_options;
 //#include "fluxsign.h"
 #include "Table.h"
 #include "TableManager.h"
-#include "TournamentDirector.h"
 #include "WatcherBot.h"
+#include "TournamentDirector.h"
+
+TableManager tourneyManager;
 
 std::string printableSessionId(const std::string& sessionId) {
     std::ostringstream oss;
@@ -79,100 +81,149 @@ int safe_stoi(const std::string& str, int error_val) {
     }
 }
 
-void TourneyStateMachine(Table *table, TableState oldState, TableState newState) {
-    std::cout << "Table[" << table->name << ", " << table->type << "] changed state from " << stateName(oldState) << " to " << stateName(newState) << std::endl;
-    if (table->type == Qualifier) {
-        std::optional<size_t> table_num = TourneyManager.findTableByType(Final);
-        Table *finalTable = TourneyManager.getTable(table_num);
-        if (!finalTable && table->state == Playing) { // No final table created yet, create once we have a game Playing
-            table_num = TourneyManager.allocateTable(table->mytd, "Final");
-            finalTable = TourneyManager.getTable(table_num);
-            if (finalTable) {
-                size_t tnum = (*table_num)+1;
-                finalTable->name = "Flux Final " + std::to_string(tnum);
-                finalTable->watcher = "WatchBot" + std::to_string(tnum);
-                finalTable->type = Final;
-            } else {
-                std::cout << "Create Final Game Table failed" << std::endl;
-                return;
-            }
-        }
-        if (newState == Playing) {
-            table->Invite.clear(); // We're playing, no more invites
-        }
-        if (finalTable && newState == Finished) {
-            // Append winner and runner up to finalTable->Invites
-            finalTable->Invite.insert(finalTable->Invite.end(), table->Invite.begin(), table->Invite.end());
-            std::cout << finalTable->name << " now has " << finalTable->Invite.size() << " Players" << std::endl;
-            // Check to see if all Qualifier games are finished and then start Final
-            std::vector<Table*> tables = TourneyManager.activeTables();
-            bool create_final = true;
-            for (const auto& table : tables) {
-                // Read-only access
-                if (table->type != Qualifier) continue;
-                if (table->state <= Playing) {
-                    create_final = false;
-                    break; // Still playing Qualifiers
-                }
-            }
-            if (create_final) {
-                // create game, invite players, etc (InvitePlayerToGameMessage)
-                std::cout << "Create Final Game" << std::endl;
-                finalTable->mytd->createGame(finalTable->name, "", NetGameInfo_NetGameType_inviteOnlyGame, finalTable->Invite.size());
-            }
-        }
-        if (newState == Closed) {
-            if (table->Invite.size() == 2) {
-                std::string shout = "Congratulations to the winners of " + table->name + ": #1 - " + table->Invite.at(0).name + " #2 - " + table->Invite.at(1).name;
-                std::cout << shout << std::endl;
-                table->mytd->sendLobby(shout);
-            }
-            table->Invite.clear();
-            TourneyManager.freeTable(table);
+#include <string>
+#include <sstream>
+#include <iomanip>
+#include <cstdint>
 
-            if (finalTable) {
-                std::vector<Table*> tables = TourneyManager.activeTables();
-                bool start_final = true;
-                std::cout << "Maybe start final match " << std::endl;
-                for (const auto& table : tables) {
-                    // Start final game when all qualifiers are closed
-                    if (table->type == Qualifier) {
-                        start_final = false;
-                        break;
-                    }
-                }
-                if (start_final) { // Time to Invite all players and play!
-                    std::cout << "Start Final " << finalTable->name << std::endl;
-                    for (const Player& player : finalTable->Invite) { // This should run until all players have joined or game is started (manually)
-                        std::cout << "Invite " << player.name << " <===========================    INVITE " << std::endl;
-                        finalTable->mytd->inviteGame(finalTable->game_id, player.player_id);
-                    }
-                }
+std::string format_pot(uint64_t total_pot) {
+    // Convert to double with 8 decimal places
+    double value = static_cast<double>(total_pot) / 1e8;
+
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(8) << value;
+    std::string str = oss.str();
+
+    // Remove trailing zeros
+    str.erase(str.find_last_not_of('0') + 1);
+
+    // If it ends with '.', remove that too
+    if (!str.empty() && str.back() == '.') {
+        str.pop_back();
+    }
+
+    return str;
+}
+
+void TourneyStateMachine(TournamentDirector* mytd, Table& table, TableState newState) {
+    std::cout << "Table" << table.info.name << " (" << table.info.game_id << ") " << table.info.type << "] changed state from " << stateName(table.state) << " to " << stateName(newState) << std::endl;
+    if (table.info.type == Qualifier) {
+        Table* finalTable = tourneyManager.pFindTableByType(Final);
+        if (!finalTable && table.state == TableState::Playing) { // No final table created yet, create once we have a game Playing
+            std::cout << "Created Final Table" << std::endl;
+            Table& fTable = tourneyManager.addTable("Flux Final", "WatchBot");
+            fTable.info.type = Final;
+            finalTable = tourneyManager.pFindTableByType(Final);
+        }
+        if (newState == TableState::Playing) {
+            // Refund fee offered by players who never joined - or maybe better to have an external cron that refunds stale txid in wallet
+            for (auto& p : table.invite) {
+                std::cout << "Refund " << p.entryFee.pot_flux << " to " << p.entryFee.vin_address << std::endl;
+                uint32_t player_id = p.player_id;
+                mytd->registeredPlayers.erase(
+                    std::remove_if(
+                        mytd->registeredPlayers.begin(),
+                        mytd->registeredPlayers.end(),
+                        [player_id](const auto& entry) {
+                            return entry.first == player_id; // match by player_id
+                        }),
+                    mytd->registeredPlayers.end());
+            }
+            table.invite.clear(); // We're playing, no more invites
+        }
+        if (finalTable) std::cout << "Has Final Table" << std::endl;
+        if (finalTable && newState == TableState::Finished) {
+            // Append winner and runner up to finalTable->Invites
+            finalTable->invite.insert(finalTable->invite.end(), table.winners.begin(), table.winners.end());
+            std::cout << finalTable->info.name << " now has " << finalTable->invite.size() << " Players" << std::endl;
+        }
+        if (newState == TableState::Closed) {
+            if (table.winners.size() == 2) {
+                std::string shout = "Congratulations to the winners of " + table.info.name + ": #1 - " + table.winners.at(0).name + " #2 - " + table.winners.at(1).name;
+                std::cout << shout << std::endl;
+                mytd->sendLobby(shout);
+            }
+            table.winners.clear();
+            tourneyManager.removeTable(table);
+        }
+
+        if (finalTable) {
+            std::vector<Table> tables = tourneyManager.getTables();
+            bool start_final = true;
+            std::cout << "Maybe start final match " << std::endl;
+            Table *t = tourneyManager.pFindTableByType(Qualifier);
+            if (t) start_final = false;
+            if (start_final) { // Time to Invite all players and play!
+                Table& fTable = tourneyManager.findTableByType(Final);
+                std::cout << "Start Final " << fTable.info.name << " Bot " << fTable.info.watcher << std::endl;
+                fTable.info.max_players = fTable.invite.size();
+                mytd->create_and_run_watcher_bot(fTable);
+                mytd->run_watcher_bots();
             }
         }
     }
-    if (table->type == Final) {
-        if (newState == Playing) {
-            table->Invite.clear(); // We're playing, no more invites
-        }
-        if (newState == Closed) {
-            if (table->Invite.size() == 1) {
-                std::string shout = "Congratulations to the winner of " + table->name + ": " + table->Invite.at(0).name;
-                std::cout << shout << std::endl;
-                table->mytd->sendLobby(shout);
+    if (table.info.type == Final || table.info.type == Solo) {
+        if (newState == TableState::Playing) {
+            if (table.info.type == Solo) {
+                // Refund fee offered by players who never joined
+                for (auto& p : table.invite) {
+                    std::cout << "Refund " << p.entryFee.pot_flux << " to " << p.entryFee.vin_address << std::endl;
+                    uint32_t player_id = p.player_id;
+                    mytd->registeredPlayers.erase(
+                        std::remove_if(
+                            mytd->registeredPlayers.begin(),
+                            mytd->registeredPlayers.end(),
+                            [player_id](const auto& entry) {
+                                return entry.first == player_id; // match by player_id
+                            }),
+                        mytd->registeredPlayers.end());
+                }
             }
-            if (table->Invite.size() == 2) {
-                std::string shout = "Congratulations to the winners of " + table->name + ": #1 - " + table->Invite.at(0).name + " #2 - " + table->Invite.at(1).name;
+            table.invite.clear(); // We're playing, no more invites.
+        }
+        if (newState == TableState::Closed) {
+            uint64_t total_pot = 0;
+            std::vector<std::string> txids = {};
+            for (auto& [pid, p] : mytd->registeredPlayers) {
+                total_pot += p.pot_flux;
+                txids.push_back(p.txid);
+            }
+            std::string totalpot = "";
+            if (total_pot > 0) {
+                totalpot = " " + format_pot(total_pot) + " Flux";
+                std::string shout = "The total pot is" + totalpot;
                 std::cout << shout << std::endl;
-                table->mytd->sendLobby(shout);
+                mytd->sendLobby(shout);
+            }
+            if (table.info.type == Solo) {
+                std::string shout = "Congratulations to the winner of " + table.info.name + ": " + table.winners.at(0).name +totalpot;
+                std::cout << shout << std::endl;
+                std::cout << "Pay Winner " << table.winners.at(0).entryFee.vin_address << " " << format_pot(total_pot) << " Flux" << std::endl;
+                mytd->sendLobby(shout);
+            }
+            if (table.info.type == Final) {
+                std::string first_pot = "";
+                std::string second_pot = "";
+                if (total_pot > 0) {
+                    uint64_t second = (total_pot*40)/100;
+                    uint64_t first = total_pot - second;
+                    first_pot = " " + format_pot(first) + " Flux";
+                    second_pot = " " + format_pot(second) + " Flux";
+                }
+                std::string shout = "Congratulations to the winners of " + table.info.name + ": #1 - " + table.winners.at(0).name + first_pot + " #2 - " + table.winners.at(1).name + second_pot;
+                std::cout << shout << std::endl;
+                std::cout << "Pay Winner 1 " << table.winners.at(0).entryFee.vin_address << first_pot << std::endl;
+                std::cout << "Pay Winner 2 " << table.winners.at(1).entryFee.vin_address << second_pot << std::endl;
+                mytd->sendLobby(shout);
             }
             // Send winner(s) prize here?
-            table->Invite.clear();
-            TourneyManager.freeTable(table);
+            table.winners.clear();
+            tourneyManager.removeTable(table);
+            mytd->endTourney();
         }
     }
-    if (table->type == Solo) {
-    }
+//    if (table.info.type == Solo) {
+//    }
 }
 
 int main(int argc, char* argv[]) {
@@ -207,16 +258,16 @@ int main(int argc, char* argv[]) {
 
     boost::asio::io_context io;
 
-    if (privKey.size() == 0) {
-        std::cerr << "No private key defined --privKey missing!" << std::endl;
-        return -1;
-    }
+    // if (privKey.size() == 0) {
+    //     std::cerr << "No private key defined --privKey missing!" << std::endl;
+    //     return -1;
+    // }
     //fluxsignStart();
     //fluxsignAddKey(privKey);
 
-    TourneyManager.setStateChangeCallback(TourneyStateMachine);
+    tourneyManager.setStateChangeCallback(TourneyStateMachine);
 
-    auto td = std::make_shared<TournamentDirector>(io, vm);
+    auto td = std::make_shared<TournamentDirector>(io, vm, tourneyManager);
     tcp::resolver resolver(io);
     auto endpoints = resolver.resolve(host, std::to_string(port));
 
