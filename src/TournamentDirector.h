@@ -34,9 +34,6 @@ public:
     void endTourney(void);
     void startGame(uint32_t gameid);
     void leaveGame(uint32_t gameid);
-    void inviteGame(uint32_t gameid, uint32_t player_id);
-    void createGame(std::string name, std::string password, NetGameInfo_NetGameType gameType, int nPlayers);
-    void createGame(std::string name, std::string password, NetGameInfo_NetGameType gameType);
     std::vector<std::pair<uint32_t, FluxResult>> registeredPlayers;
     FluxResult* findFluxResult(uint32_t player_id);
 

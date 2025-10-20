@@ -189,41 +189,6 @@ void WatcherBot::watchGame(uint32_t gameid) {
     send_message(joinMsg);
 }
 
-
-void WatcherBot::createGame(std::string name, std::string password, NetGameInfo_NetGameType gameType, int nPlayers) {
-    if (nPlayers < 3) nPlayers = 3; // Minimum of 3 players for now, until we get polling Invites
-    // Send create game
-    PokerTHMessage msg;
-    msg.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_JoinNewGameMessage);
-    JoinNewGameMessage *joinNew = msg.mutable_joinnewgamemessage();
-    joinNew->set_autoleave(true);
-    NetGameInfo *tmpGameInfo = joinNew->mutable_gameinfo();
-    tmpGameInfo->set_netgametype(NetGameInfo_NetGameType_normalGame);
-    tmpGameInfo->set_maxnumplayers(nPlayers);
-#if 0
-    tmpGameInfo->set_raiseintervalmode(NetGameInfo_RaiseIntervalMode_raiseOnMinutes);
-    tmpGameInfo->set_endraisemode(NetGameInfo_EndRaiseMode_doubleBlinds);
-    tmpGameInfo->set_raiseeveryminutes(15);
-#else
-    tmpGameInfo->set_raiseintervalmode(NetGameInfo_RaiseIntervalMode_raiseOnHandNum);
-    tmpGameInfo->set_raiseeveryhands(5);
-#endif
-    tmpGameInfo->set_endraisemode(NetGameInfo_EndRaiseMode_keepLastBlind);
-    tmpGameInfo->set_proposedguispeed(5);
-    tmpGameInfo->set_delaybetweenhands(6);
-    tmpGameInfo->set_playeractiontimeout(15);
-    tmpGameInfo->set_endraisesmallblindvalue(0);
-    tmpGameInfo->set_firstsmallblind(50);
-    tmpGameInfo->set_startmoney(5000);
-    start_money = tmpGameInfo->startmoney();
-    tmpGameInfo->set_gamename(name);
-    tmpGameInfo->set_netgametype(gameType);
-    if (!password.empty()) {
-        joinNew->set_password(password);
-    }
-    send_message(msg);
-}
-
 void WatcherBot::handle_message(const std::vector<char>& data) {
     PokerTHMessage msg;
     if (!msg.ParseFromArray(data.data(), data.size())) {
@@ -269,8 +234,8 @@ void WatcherBot::handle_message(const std::vector<char>& data) {
             }
             if (watchTable_.state == TableState::Connecting) {
                 tourneyManager_.updateState(mytd_, watchTable_, TableState::CreateGame);
-                createGame(watchTable_.info.name, "",
-                    NetGameInfo_NetGameType_inviteOnlyGame, watchTable_.info.max_players);
+                PokerTHMessage new_game = tourneyManager_.createGame(watchTable_.info.name, "", NetGameInfo_NetGameType_inviteOnlyGame, watchTable_.info.max_players);
+                send_message(new_game);
             }
             break;
         }
@@ -502,7 +467,7 @@ void WatcherBot::handle_message(const std::vector<char>& data) {
                     }
                 }
                 Players.clear(); // Not needed any more, all players (w/txids) are in RegisteredPlayers{}
-                tourneyManager_.updateState(mytd_, watchTable_, TableState::Finished);
+                tourneyManager_.updateState(mytd_, watchTable_, TableState::Finished); // TODO Move to bot app
             }
             break;
         }

@@ -28,7 +28,6 @@ public:
     void leaveGame(uint32_t gameid);
     void watchGame(uint32_t gameid);
     void inviteGame(uint32_t gameid, uint32_t player_id);
-    void createGame(std::string name, std::string password, NetGameInfo_NetGameType gameType, int nPlayers);
 
 private:
     boost::asio::io_context& io_;

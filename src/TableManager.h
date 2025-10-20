@@ -4,7 +4,9 @@
 #include <map>
 #include <vector>
 #include <functional>
+#include <string>
 #include "Table.h"
+#include <third_party/protobuf/pokerth.pb.h>
 
 class TournamentDirector;
 
@@ -22,6 +24,7 @@ public:
     Table& findTableByGameId(uint32_t gameId);
     void updateState(TournamentDirector* mytd, Table& table, TableState newState);
     void setStateChangeCallback(std::function<void(TournamentDirector* mytd, Table&, const TableState&)> callback);
+    std::function<PokerTHMessage(std::string name, std::string password, NetGameInfo_NetGameType gameType, int nPlayers)> createGame;
 private:
     std::map<uint32_t, Table> tables;
     std::function<void(TournamentDirector* mytd, Table&, const TableState&)> stateChangeCallback;

@@ -464,39 +464,6 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                         std::cout << stateName(table.state) << " " << table.info.game_id << " " + table.info.name + " " << table.num_players << " " << table.invite.size() << std::endl;
                     }
                 }
-                if (chat.chattext() == "table") {
-                    std::cout << "Create Game MyTest" << std::endl;
-                    Table table = tourneyManager_.addTable("Flux Table", "WatchBot");
-                    createGame(table.info.name, "", NetGameInfo_NetGameType_registeredOnlyGame);
-                }
-                if (chat.chattext().compare(0, 6, "start ") == 0) {
-                    size_t tbl = safe_stoi(chat.chattext().substr(6,chat.chattext().size()-6), -1);
-                    std::cout << "Start Table" << std::endl;
-                    if (tbl >= 1 && tbl <= 10) {
-                        try {
-                            Table table = tourneyManager_.getTable(tbl-1);
-                            std::cout << "Start game " << table.info.game_id << " " << table.info.name << std::endl;
-                            startGame(table.info.game_id);
-                        } catch (const std::out_of_range& e) {
-                            std::cout << "Start Game Table " << tbl << " not found " << e.what() << std::endl;
-                        }
-                    } else {
-                        std::cout << "Invalid start command: should be 'start #' where # is 1-10, received " + chat.chattext() << std::endl;
-                    }
-                }
-                if (chat.chattext().compare(0, 6, "leave ") == 0) {
-                    int tbl = safe_stoi(chat.chattext().substr(6,chat.chattext().size()-6), -1);
-                    if (tbl >= 1 && tbl <= 10) {
-                        try {
-                            Table table = tourneyManager_.getTable(tbl-1);
-                            leaveGame(table.info.game_id);
-                        } catch (const std::out_of_range& e) {
-                            std::cout << "Start Game Table " << tbl << " not found " << e.what() << std::endl;
-                        }
-                    } else {
-                        std::cout << "Invalid start command: should be 'start #' where # is 1-10, received " + chat.chattext() << std::endl;
-                    }
-                }
                 if (chat.chattext() == "solo" || chat.chattext() == "solo help") {
                     sendTell(playerid, "Syntax: solo <entry_fee> [prize_txid|'none'] [Game Name]");
                 }
@@ -1004,44 +971,4 @@ void TournamentDirector::leaveGame(uint32_t gameid) {
     leave.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_LeaveGameRequestMessage);
     leave.mutable_leavegamerequestmessage()->set_gameid(gameid);
     send_message(leave);
-}
-
-void TournamentDirector::inviteGame(uint32_t gameid, uint32_t player_id) {
-    PokerTHMessage imsg;
-    imsg.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_InvitePlayerToGameMessage);
-    InvitePlayerToGameMessage* invite = imsg.mutable_inviteplayertogamemessage();
-    invite->set_gameid(gameid);
-    invite->set_playerid(player_id);
-    send_message(imsg);
-}
-
-void TournamentDirector::createGame(std::string name, std::string password, NetGameInfo_NetGameType gameType, int nPlayers) {
-    if (nPlayers < 3) nPlayers = 3; // Minimum of 3 players for now, until we get polling Invites
-    // Send create game
-    PokerTHMessage msg;
-    msg.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_JoinNewGameMessage);
-    JoinNewGameMessage *joinNew = msg.mutable_joinnewgamemessage();
-    joinNew->set_autoleave(true);
-    NetGameInfo *tmpGameInfo = joinNew->mutable_gameinfo();
-    tmpGameInfo->set_netgametype(NetGameInfo_NetGameType_normalGame);
-    tmpGameInfo->set_maxnumplayers(nPlayers);
-    tmpGameInfo->set_raiseintervalmode(NetGameInfo_RaiseIntervalMode_raiseOnHandNum);
-    tmpGameInfo->set_raiseeveryhands(5);
-    tmpGameInfo->set_endraisemode(NetGameInfo_EndRaiseMode_keepLastBlind);
-    tmpGameInfo->set_proposedguispeed(5);
-    tmpGameInfo->set_delaybetweenhands(6);
-    tmpGameInfo->set_playeractiontimeout(15);
-    tmpGameInfo->set_endraisesmallblindvalue(0);
-    tmpGameInfo->set_firstsmallblind(50);
-    tmpGameInfo->set_startmoney(3000);
-    tmpGameInfo->set_gamename(name);
-    tmpGameInfo->set_netgametype(gameType);
-    if (!password.empty()) {
-        joinNew->set_password(password);
-    }
-    send_message(msg);
-}
-
-void TournamentDirector::createGame(std::string name, std::string password, NetGameInfo_NetGameType gameType) {
-    createGame(name, password, gameType, 10);
 }

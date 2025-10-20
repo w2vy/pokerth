@@ -105,6 +105,40 @@ std::string format_pot(uint64_t total_pot) {
     return str;
 }
 
+PokerTHMessage tourneyCreateGame(std::string name, std::string password, NetGameInfo_NetGameType gameType, int nPlayers) {
+    if (nPlayers < 3) nPlayers = 3; // Minimum of 3 players for now, until we get polling Invites
+    // Send create game
+    PokerTHMessage msg;
+    msg.set_messagetype(PokerTHMessage_PokerTHMessageType_Type_JoinNewGameMessage);
+    JoinNewGameMessage *joinNew = msg.mutable_joinnewgamemessage();
+    joinNew->set_autoleave(true);
+    NetGameInfo *tmpGameInfo = joinNew->mutable_gameinfo();
+    tmpGameInfo->set_netgametype(NetGameInfo_NetGameType_normalGame);
+    tmpGameInfo->set_maxnumplayers(nPlayers);
+#if 0
+    tmpGameInfo->set_raiseintervalmode(NetGameInfo_RaiseIntervalMode_raiseOnMinutes);
+    tmpGameInfo->set_endraisemode(NetGameInfo_EndRaiseMode_doubleBlinds);
+    tmpGameInfo->set_raiseeveryminutes(15);
+#else
+    tmpGameInfo->set_raiseintervalmode(NetGameInfo_RaiseIntervalMode_raiseOnHandNum);
+    tmpGameInfo->set_raiseeveryhands(5);
+#endif
+    tmpGameInfo->set_endraisemode(NetGameInfo_EndRaiseMode_keepLastBlind);
+    tmpGameInfo->set_proposedguispeed(5);
+    tmpGameInfo->set_delaybetweenhands(6);
+    tmpGameInfo->set_playeractiontimeout(15);
+    tmpGameInfo->set_endraisesmallblindvalue(0);
+    tmpGameInfo->set_firstsmallblind(50);
+    tmpGameInfo->set_startmoney(5000);
+    //start_money = tmpGameInfo->startmoney();
+    tmpGameInfo->set_gamename(name);
+    tmpGameInfo->set_netgametype(gameType);
+    if (!password.empty()) {
+        joinNew->set_password(password);
+    }
+    return msg;
+}
+
 void TourneyStateMachine(TournamentDirector* mytd, Table& table, TableState newState) {
     std::cout << "Table" << table.info.name << " (" << table.info.game_id << ") " << table.info.type << "] changed state from " << stateName(table.state) << " to " << stateName(newState) << std::endl;
     if (table.info.type == Qualifier) {
@@ -266,6 +300,7 @@ int main(int argc, char* argv[]) {
     //fluxsignAddKey(privKey);
 
     tourneyManager.setStateChangeCallback(TourneyStateMachine);
+    tourneyManager.createGame = tourneyCreateGame;
 
     auto td = std::make_shared<TournamentDirector>(io, vm, tourneyManager);
     tcp::resolver resolver(io);
