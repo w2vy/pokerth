@@ -9,6 +9,7 @@
 #include <sstream>
 #include <mutex>
 #include <deque>
+#include <boost/asio/steady_timer.hpp>
 #include "PokerClient.h"
 
 enum TourneyType {
@@ -38,15 +39,18 @@ public:
     FluxResult* findFluxResult(uint32_t player_id);
 
 private:
+    void lobbySPAM();
+
     TableManager& tourneyManager_;
     std::unordered_map<int, std::shared_ptr<WatcherBot>> watchers_;
     std::deque<std::shared_ptr<WatcherBot>> bots_;
     std::mutex bots_mutex_;
     boost::asio::ssl::context ssl_ctx_;
+    boost::asio::steady_timer lobbySpamTimer_;
     TourneyType activeTourney = NoTourney;
     bool registrationOpen = false;
     int MaxTablePlayers = 10;
-    uint32_t maxRegistration;
+    uint32_t maxRegistration = 0;
     Table *activeTable;
     std::string prizeTxid = "";
     int64_t prizeFlux = 0;

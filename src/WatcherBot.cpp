@@ -467,7 +467,7 @@ void WatcherBot::handle_message(const std::vector<char>& data) {
                     }
                 }
                 Players.clear(); // Not needed any more, all players (w/txids) are in RegisteredPlayers{}
-                tourneyManager_.updateState(mytd_, watchTable_, TableState::Finished); // TODO Move to bot app
+                tourneyManager_.updateState(mytd_, watchTable_, TableState::Finished);
             }
             break;
         }

@@ -9,6 +9,8 @@
 #include "Table.h"
 #include "TournamentDirector.h"
 #include <thread>
+#include <chrono>
+#include <boost/system/error_code.hpp>
 
 const std::string botadr = "t1KZURHF1JF84i4JJjXMe3a5tXVoquZhMzf";
 
@@ -58,9 +60,63 @@ FluxResult* TournamentDirector::findFluxResult(uint32_t player_id) {
 
 TournamentDirector::TournamentDirector(boost::asio::io_context& io, const boost::program_options::variables_map& vm, TableManager& tourneyManager)
     : PokerClient(io, vm), tourneyManager_(tourneyManager),
-    ssl_ctx_(boost::asio::ssl::context::sslv23_client) {
+    ssl_ctx_(boost::asio::ssl::context::sslv23_client), lobbySpamTimer_(io) {
     ssl_ctx_.set_verify_mode(boost::asio::ssl::verify_peer);
     ssl_ctx_.set_default_verify_paths();  // Or load specific CA bundle if needed
+}
+
+void TournamentDirector::lobbySPAM() {
+    if (activeTourney == NoTourney) {
+        boost::system::error_code ignored;
+        lobbySpamTimer_.cancel(ignored);
+        return;
+    }
+
+    const std::string username = vm_["username"].as<std::string>();
+    const std::string typeStr = (activeTourney == OneRound) ? "Solo"
+                                : (activeTourney == TwoRounds) ? "Multi-Table"
+                                : "Tournament";
+    const uint32_t currentPlayers = static_cast<uint32_t>(registeredPlayers.size());
+    const uint32_t slots = maxRegistration > currentPlayers ? maxRegistration - currentPlayers : 0;
+
+    std::ostringstream invite;
+    invite << gameName << " is open! Type: /msg " << username << " join";
+    if (entryFee > 0) {
+        invite << " <txid>";
+    }
+    sendLobby(invite.str());
+
+    if (entryFee > 0) {
+        std::ostringstream fee;
+        fee << "Where <txid> is the txid of a " << entryFee << " Flux payment to " << botadr;
+        sendLobby(fee.str());
+    }
+
+    std::ostringstream status;
+    status << "Type: " << typeStr
+           << " | Players: " << currentPlayers << "/" << maxRegistration;
+
+    if (entryFee > 0) {
+        status << " | Entry Fee: " << entryFee << " Flux";
+    } else {
+        status << " | Free Entry";
+    }
+
+    if (slots > 0) {
+        status << " | Seats left: " << slots;
+    } else {
+        status << " | Registration full";
+    }
+
+    sendLobby(status.str());
+
+    lobbySpamTimer_.expires_after(std::chrono::minutes(5));
+    auto self = std::static_pointer_cast<TournamentDirector>(shared_from_this());
+    lobbySpamTimer_.async_wait([self](const boost::system::error_code& ec) {
+        if (!ec) {
+            self->lobbySPAM();
+        }
+    });
 }
 
 void TournamentDirector::validateFluxFee(uint32_t playerid, const std::string& txid, const Txn& txn, FluxResultCallback on_result) {
@@ -274,6 +330,8 @@ void verify_txid_unspent(
 
 void TournamentDirector::endTourney(void) {
     activeTourney = NoTourney;
+    boost::system::error_code ignored;
+    lobbySpamTimer_.cancel(ignored);
 }
 
 void TournamentDirector::handle_message(const std::vector<char>& data) {
@@ -472,11 +530,11 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                 }
                 if (chat.chattext().compare(0, 5, "solo ") == 0 || chat.chattext().compare(0, 6, "multi ") == 0) {
                     std::string input;
-                    int clen = 6;
-                    TourneyType ttype = TwoRounds;
-                    if (chat.chattext().compare(0, 5, "solo ") == 0) {
-                        clen = 5;
-                        ttype = OneRound;
+                    int clen = 5;
+                    TourneyType ttype = OneRound;
+                    if (chat.chattext().compare(0, 6, "multi ") == 0) {
+                        clen = 6;
+                        ttype = TwoRounds;
                         maxPlayers = MaxTablePlayers * 5; // 2 Player each table advance to final
                     }
 
@@ -539,17 +597,9 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                         gameName = game_name;
                         maxRegistration = maxPlayers;
                         sendTell(playerid, game_name + " is open! Have players 'join <txid>' or 'join' if free");
-                        if (entryFee == 0) {
-                            std::ostringstream oss;
-                            oss << game_name << " is open! Type: /msg " << username << " join";
-                            sendLobby(oss.str());
-                        } else {
-                            std::ostringstream oss;
-                            oss << game_name << " is open! Type: /msg " << username << " join <txid>";
-                            sendLobby(oss.str());
-                            oss << "Where <txid> is the txid of a Flux payment to " << botadr << " for " << entryFee << " Flux";
-                            sendLobby(oss.str());
-                        }
+                        boost::system::error_code ignored;
+                        lobbySpamTimer_.cancel(ignored);
+                        lobbySPAM();
                     };
 
                     if (txid.empty()) {
