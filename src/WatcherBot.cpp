@@ -13,6 +13,21 @@ WatcherBot::WatcherBot(boost::asio::io_context& io, const po::variables_map& vm,
     std::cout << watchTable_.info.watcher << ": Watch " << watchTable_.info.name << std::endl;
 }
 
+const Table& WatcherBot::getTable() const {
+    return watchTable_;
+}
+
+std::vector<Player> WatcherBot::getActivePlayers() const {
+    std::vector<Player> active;
+    active.reserve(Players.size());
+    for (const auto& [id, player] : Players) {
+        if (player.startingStack > 0) {
+            active.push_back(player);
+        }
+    }
+    return active;
+}
+
 void WatcherBot::start(void) {
     const std::string& username = watchTable_.info.watcher;
     const std::string& password = vm_["watcher-password"].as<std::string>();

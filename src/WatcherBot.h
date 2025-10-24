@@ -7,6 +7,7 @@
 #include "TournamentDirector.h"
 
 #include <optional>
+#include <vector>
 
 class WatcherBot : public PokerClient {
     
@@ -28,6 +29,8 @@ public:
     void leaveGame(uint32_t gameid);
     void watchGame(uint32_t gameid);
     void inviteGame(uint32_t gameid, uint32_t player_id);
+    const Table& getTable() const;
+    std::vector<Player> getActivePlayers() const;
 
 private:
     boost::asio::io_context& io_;

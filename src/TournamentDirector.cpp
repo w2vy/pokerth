@@ -79,38 +79,120 @@ void TournamentDirector::lobbySPAM() {
     const uint32_t currentPlayers = static_cast<uint32_t>(registeredPlayers.size());
     const uint32_t slots = maxRegistration > currentPlayers ? maxRegistration - currentPlayers : 0;
 
-    std::ostringstream invite;
-    invite << gameName << " is open! Type: /msg " << username << " join";
-    if (entryFee > 0) {
-        invite << " <txid>";
-    }
-    sendLobby(invite.str());
+    if (registrationOpen) {
+        std::ostringstream invite;
+        invite << gameName << " is open! Type: /msg " << username << " join";
+        if (entryFee > 0) {
+            invite << " <txid>";
+        }
+        sendLobby(invite.str());
 
-    if (entryFee > 0) {
-        std::ostringstream fee;
-        fee << "Where <txid> is the txid of a " << entryFee << " Flux payment to " << botadr;
-        sendLobby(fee.str());
-    }
+        if (entryFee > 0) {
+            std::ostringstream fee;
+            fee << "Where <txid> is the txid of a " << entryFee << " Flux payment to " << botadr;
+            sendLobby(fee.str());
+        }
 
-    std::ostringstream status;
-    status << "Type: " << typeStr
-           << " | Players: " << currentPlayers << "/" << maxRegistration;
+        std::ostringstream status;
+        status << "Type: " << typeStr
+               << " | Players: " << currentPlayers << "/" << maxRegistration;
 
-    if (entryFee > 0) {
-        status << " | Entry Fee: " << entryFee << " Flux";
+        if (entryFee > 0) {
+            status << " | Entry Fee: " << entryFee << " Flux";
+        } else {
+            status << " | Free Entry";
+        }
+
+        if (slots > 0) {
+            status << " | Seats left: " << slots;
+        } else {
+            status << " | Registration full";
+        }
+
+        sendLobby(status.str());
     } else {
-        status << " | Free Entry";
+        std::ostringstream overview;
+        overview << gameName << " is underway | Type: " << typeStr
+                 << " | Registered: " << currentPlayers;
+        if (entryFee > 0) {
+            overview << " | Entry Fee: " << entryFee << " Flux";
+        } else {
+            overview << " | Free Entry";
+        }
+        sendLobby(overview.str());
+
+        std::vector<std::shared_ptr<WatcherBot>> watcherSnapshot;
+        {
+            std::lock_guard<std::mutex> lock(watchers_mutex_);
+            for (auto it = watchers_.begin(); it != watchers_.end();) {
+                const auto& bot = *it;
+                if (!bot || bot->getTable().state == TableState::Closed) {
+                    it = watchers_.erase(it);
+                } else {
+                    watcherSnapshot.push_back(bot);
+                    ++it;
+                }
+            }
+        }
+
+        if (watcherSnapshot.empty()) {
+            sendLobby("No active tables are currently running.");
+        } else {
+            for (const auto& bot : watcherSnapshot) {
+                if (!bot) continue;
+                const Table& table = bot->getTable();
+                if (table.state != TableState::Playing) continue;
+
+                std::ostringstream tableMsg;
+                tableMsg << "Table " << table.info.name << ": ";
+
+                auto activePlayers = bot->getActivePlayers();
+                std::vector<std::string> names;
+                names.reserve(activePlayers.size());
+                for (const auto& player : activePlayers) {
+                    if (player.startingStack <= 0) continue;
+                    if (!player.name.empty()) {
+                        names.push_back(player.name);
+                    } else {
+                        names.push_back("Player " + std::to_string(player.player_id));
+                    }
+                }
+
+                if (names.empty()) {
+                    tableMsg << "awaiting action";
+                } else {
+                    for (size_t i = 0; i < names.size(); ++i) {
+                        if (i != 0) tableMsg << ", ";
+                        tableMsg << names[i];
+                    }
+                }
+
+                sendLobby(tableMsg.str());
+            }
+        }
+
+        if (activeTourney == TwoRounds && currentPlayers > maxRegistration) {
+            if (Table* finalTable = tourneyManager_.pFindTableByType(TableType::Final)) {
+                std::ostringstream finalMsg;
+                finalMsg << "Final Table " << finalTable->info.name << " invites: ";
+                if (finalTable->invite.empty()) {
+                    finalMsg << "no players yet.";
+                } else {
+                    for (size_t i = 0; i < finalTable->invite.size(); ++i) {
+                        const auto& player = finalTable->invite[i];
+                        const std::string name = player.name.empty()
+                            ? "Player " + std::to_string(player.player_id)
+                            : player.name;
+                        if (i != 0) finalMsg << ", ";
+                        finalMsg << name;
+                    }
+                }
+                sendLobby(finalMsg.str());
+            }
+        }
     }
 
-    if (slots > 0) {
-        status << " | Seats left: " << slots;
-    } else {
-        status << " | Registration full";
-    }
-
-    sendLobby(status.str());
-
-    lobbySpamTimer_.expires_after(std::chrono::minutes(5));
+    lobbySpamTimer_.expires_after(std::chrono::minutes(registrationOpen ? 5 : 5));
     auto self = std::static_pointer_cast<TournamentDirector>(shared_from_this());
     lobbySpamTimer_.async_wait([self](const boost::system::error_code& ec) {
         if (!ec) {
@@ -332,6 +414,10 @@ void TournamentDirector::endTourney(void) {
     activeTourney = NoTourney;
     boost::system::error_code ignored;
     lobbySpamTimer_.cancel(ignored);
+    {
+        std::lock_guard<std::mutex> lock(watchers_mutex_);
+        watchers_.clear();
+    }
 }
 
 void TournamentDirector::handle_message(const std::vector<char>& data) {
@@ -779,6 +865,13 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                         sendTell(playerid, "Registration is not open, sorry.");
                         break;
                     }
+                    if (registeredPlayers.size() == maxRegistration) {
+                        sendTell(playerid, "I am sorry the tourney is full, better luck next time!");
+                        if (entryFee > 0) {
+                            sendTell(playerid, "If you have sent an entry fee, you can use it for a future tourney");
+                        }
+                        break;
+                    }
                     std::string txid = chat.chattext().substr(5);
                     static const std::regex rx("^[A-Fa-f0-9]{64}$");
                     if (!std::regex_match(txid, rx)) {
@@ -833,6 +926,11 @@ void TournamentDirector::handle_message(const std::vector<char>& data) {
                                                         std::ostringstream oss;
                                                         oss << "Your txid has been used by another player " << playerid << " use your own txid";
                                                         sendTell(playerid, oss.str());
+                                                    } else if (registeredPlayers.size() == maxRegistration) {
+                                                        sendTell(playerid, "I am sorry the tourney is full, better luck next time!");
+                                                        if (entryFee > 0) {
+                                                            sendTell(playerid, "If you have sent an entry fee, you can use it for a future tourney");
+                                                        }
                                                     } else {
                                                         std::cout << "Adding player " << playerid << " to registration (txid " << txid << ")\n";
                                                         registeredPlayers.emplace_back(playerid, result);
@@ -954,6 +1052,10 @@ void TournamentDirector::create_and_run_watcher_bot(
 ) {
     std::cout << "create_and_run_watcher_bot " << wtable.info.watcher << " for " << wtable.info.name << std::endl;
     auto bot = std::make_shared<WatcherBot>(io, vm, wtable, this, tourneyManager_);
+    {
+        std::lock_guard<std::mutex> lock(watchers_mutex_);
+        watchers_.push_back(bot);
+    }
     {
         std::lock_guard<std::mutex> lock(bots_mutex_);
         bots_.push_back(bot);  // append to back

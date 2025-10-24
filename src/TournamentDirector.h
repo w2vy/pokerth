@@ -42,7 +42,8 @@ private:
     void lobbySPAM();
 
     TableManager& tourneyManager_;
-    std::unordered_map<int, std::shared_ptr<WatcherBot>> watchers_;
+    std::vector<std::shared_ptr<WatcherBot>> watchers_;
+    std::mutex watchers_mutex_;
     std::deque<std::shared_ptr<WatcherBot>> bots_;
     std::mutex bots_mutex_;
     boost::asio::ssl::context ssl_ctx_;
