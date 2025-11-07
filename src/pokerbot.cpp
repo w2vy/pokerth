@@ -7,8 +7,13 @@
 #include <array>
 #include <unordered_map>
 #include <iostream>
+#include <fstream>
 #include <third_party/protobuf/pokerth.pb.h>
 #include <net/netpacket.h>
+#include <tinyxml.h>
+#include <boost/iostreams/filtering_streambuf.hpp>
+#include <boost/iostreams/copy.hpp>
+#include <boost/iostreams/filter/zlib.hpp>
 
 using boost::asio::ip::tcp;
 namespace po = boost::program_options;
@@ -115,10 +120,16 @@ PokerTHMessage tourneyCreateGame(std::string name, std::string password, NetGame
     NetGameInfo *tmpGameInfo = joinNew->mutable_gameinfo();
     tmpGameInfo->set_netgametype(NetGameInfo_NetGameType_normalGame);
     tmpGameInfo->set_maxnumplayers(nPlayers);
-#if 0
-    tmpGameInfo->set_raiseintervalmode(NetGameInfo_RaiseIntervalMode_raiseOnMinutes);
-    tmpGameInfo->set_endraisemode(NetGameInfo_EndRaiseMode_doubleBlinds);
-    tmpGameInfo->set_raiseeveryminutes(15);
+#if 1
+    if (nPlayers < 6) {
+        tmpGameInfo->set_raiseintervalmode(NetGameInfo_RaiseIntervalMode_raiseOnMinutes);
+        tmpGameInfo->set_endraisemode(NetGameInfo_EndRaiseMode_doubleBlinds);
+        tmpGameInfo->set_raiseeveryminutes(10);
+    } else {
+        tmpGameInfo->set_raiseintervalmode(NetGameInfo_RaiseIntervalMode_raiseOnMinutes);
+        tmpGameInfo->set_endraisemode(NetGameInfo_EndRaiseMode_doubleBlinds);
+        tmpGameInfo->set_raiseeveryminutes(20);
+    }
 #else
     tmpGameInfo->set_raiseintervalmode(NetGameInfo_RaiseIntervalMode_raiseOnHandNum);
     tmpGameInfo->set_raiseeveryhands(5);
@@ -263,6 +274,7 @@ void TourneyStateMachine(TournamentDirector* mytd, Table& table, TableState newS
 int main(int argc, char* argv[]) {
     std::string host;
     int port;
+    std::string server_file;
     std::string username, password;
     std::string watcher_password;
     std::string server_password;
@@ -274,6 +286,7 @@ int main(int argc, char* argv[]) {
         ("help", "help message")
         ("host", po::value<std::string>(&host)->default_value("127.0.0.1"), "server host")
         ("port", po::value<int>(&port)->default_value(7234), "server port")
+        ("server", po::value<std::string>(&server_file)->value_name("server.xml.z"), "local server description file")
         ("username", po::value<std::string>(&username)->default_value("TD"), "username")
         ("password", po::value<std::string>(&password)->default_value(""), "user password")
         ("privKey", po::value<std::string>(&privKey)->default_value(""), "WifKey for bot wallet")
@@ -289,6 +302,68 @@ int main(int argc, char* argv[]) {
         std::cout << desc << "\n";
         return 0;
     }
+#if 1
+    // Override host/port if a compressed server profile is provided.
+    if (vm.count("server")) {
+        std::ifstream server_stream(server_file, std::ios_base::in | std::ios_base::binary);
+        if (!server_stream) {
+            std::cerr << "Unable to open server file: " << server_file << std::endl;
+            return -1;
+        }
+
+        std::ostringstream xml_data;
+        try {
+            const bool looks_compressed = server_file.size() >= 2 &&
+                server_file.compare(server_file.size() - 2, 2, ".z") == 0;
+
+            if (looks_compressed) {
+                boost::iostreams::filtering_streambuf<boost::iostreams::input> in;
+                in.push(boost::iostreams::zlib_decompressor());
+                in.push(server_stream);
+                boost::iostreams::copy(in, xml_data);
+            } else {
+                xml_data << server_stream.rdbuf();
+            }
+        } catch (const boost::iostreams::zlib_error& e) {
+            std::cerr << "Failed to decompress server file '" << server_file << "': " << e.what() << std::endl;
+            return -1;
+        } catch (const std::exception& e) {
+            std::cerr << "Error reading server file '" << server_file << "': " << e.what() << std::endl;
+            return -1;
+        }
+
+        const std::string xml_content = xml_data.str();
+        TiXmlDocument doc;
+        doc.Parse(xml_content.c_str());
+        if (doc.Error()) {
+            std::cerr << "Failed to parse server file '" << server_file << "': " << doc.ErrorDesc() << std::endl;
+            return -1;
+        }
+
+        TiXmlHandle docHandle(&doc);
+        const TiXmlElement* server_node = docHandle.FirstChild("ServerList").FirstChild("Server").ToElement();
+        if (!server_node) {
+            std::cerr << "Server file '" << server_file << "' does not contain a <ServerList>/<Server> element." << std::endl;
+            return -1;
+        }
+
+        const TiXmlElement* ipv4 = server_node->FirstChildElement("IPv4Address");
+        if (ipv4) {
+            const char* value = ipv4->Attribute("value");
+            if (value && *value) {
+                host = value;
+            }
+        }
+
+        const TiXmlElement* protobuf_port = server_node->FirstChildElement("ProtobufPort");
+        if (protobuf_port) {
+            const char* value = protobuf_port->Attribute("value");
+            if (value && *value) {
+                port = safe_stoi(value, port);
+            }
+        }
+    }
+#endif
 
     boost::asio::io_context io;
 
