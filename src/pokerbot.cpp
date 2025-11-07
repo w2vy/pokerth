@@ -14,6 +14,7 @@
 #include <boost/iostreams/filtering_streambuf.hpp>
 #include <boost/iostreams/copy.hpp>
 #include <boost/iostreams/filter/zlib.hpp>
+#include <curl/curl.h>
 
 using boost::asio::ip::tcp;
 namespace po = boost::program_options;
@@ -30,6 +31,13 @@ namespace po = boost::program_options;
 #include "TournamentDirector.h"
 
 TableManager tourneyManager;
+
+size_t CurlWriteToString(void* contents, size_t size, size_t nmemb, void* userp) {
+    auto* buffer = reinterpret_cast<std::string*>(userp);
+    const size_t total = size * nmemb;
+    buffer->append(static_cast<char*>(contents), total);
+    return total;
+}
 
 std::string printableSessionId(const std::string& sessionId) {
     std::ostringstream oss;
@@ -275,6 +283,7 @@ int main(int argc, char* argv[]) {
     std::string host;
     int port;
     std::string server_file;
+    std::string server_url;
     std::string username, password;
     std::string watcher_password;
     std::string server_password;
@@ -287,6 +296,7 @@ int main(int argc, char* argv[]) {
         ("host", po::value<std::string>(&host)->default_value("127.0.0.1"), "server host")
         ("port", po::value<int>(&port)->default_value(7234), "server port")
         ("server", po::value<std::string>(&server_file)->value_name("server.xml.z"), "local server description file")
+        ("serverurl", po::value<std::string>(&server_url)->value_name("https://example/server.xml.z"), "remote server description URL")
         ("username", po::value<std::string>(&username)->default_value("TD"), "username")
         ("password", po::value<std::string>(&password)->default_value(""), "user password")
         ("privKey", po::value<std::string>(&privKey)->default_value(""), "WifKey for bot wallet")
@@ -302,68 +312,108 @@ int main(int argc, char* argv[]) {
         std::cout << desc << "\n";
         return 0;
     }
-#if 1
-    // Override host/port if a compressed server profile is provided.
+    auto parse_server_profile = [&](const std::string& xml_content, const std::string& source_label) -> bool {
+        TiXmlDocument doc;
+        doc.Parse(xml_content.c_str());
+        if (doc.Error()) {
+            std::cerr << "Failed to parse server profile '" << source_label << "': " << doc.ErrorDesc() << std::endl;
+            return false;
+        }
+
+        TiXmlHandle docHandle(&doc);
+        const TiXmlElement* server_node = docHandle.FirstChild("ServerList").FirstChild("Server").ToElement();
+        if (!server_node) {
+            std::cerr << "Server profile '" << source_label << "' does not contain a <ServerList>/<Server> element." << std::endl;
+            return false;
+        }
+
+        const TiXmlElement* ipv4 = server_node->FirstChildElement("IPv4Address");
+        const TiXmlElement* protobuf_port = server_node->FirstChildElement("ProtobufPort");
+
+        if (!ipv4 || !ipv4->Attribute("value") || !*ipv4->Attribute("value")) {
+            std::cerr << "Server profile '" << source_label << "' is missing an IPv4Address value." << std::endl;
+            return false;
+        }
+        if (!protobuf_port || !protobuf_port->Attribute("value") || !*protobuf_port->Attribute("value")) {
+            std::cerr << "Server profile '" << source_label << "' is missing a ProtobufPort value." << std::endl;
+            return false;
+        }
+
+        host = ipv4->Attribute("value");
+        port = safe_stoi(protobuf_port->Attribute("value"), port);
+        return true;
+    };
+
+    auto load_server_profile_from_stream = [&](std::istream& input, bool looks_compressed, const std::string& source_label) -> bool {
+        std::ostringstream xml_data;
+        try {
+            if (looks_compressed) {
+                boost::iostreams::filtering_streambuf<boost::iostreams::input> in;
+                in.push(boost::iostreams::zlib_decompressor());
+                in.push(input);
+                boost::iostreams::copy(in, xml_data);
+            } else {
+                xml_data << input.rdbuf();
+            }
+        } catch (const boost::iostreams::zlib_error& e) {
+            std::cerr << "Failed to decompress server profile '" << source_label << "': " << e.what() << std::endl;
+            return false;
+        } catch (const std::exception& e) {
+            std::cerr << "Error reading server profile '" << source_label << "': " << e.what() << std::endl;
+            return false;
+        }
+        return parse_server_profile(xml_data.str(), source_label);
+    };
+
+    auto looks_compressed = [](const std::string& path) {
+        return path.size() >= 2 && path.compare(path.size() - 2, 2, ".z") == 0;
+    };
+
     if (vm.count("server")) {
         std::ifstream server_stream(server_file, std::ios_base::in | std::ios_base::binary);
         if (!server_stream) {
             std::cerr << "Unable to open server file: " << server_file << std::endl;
             return -1;
         }
-
-        std::ostringstream xml_data;
-        try {
-            const bool looks_compressed = server_file.size() >= 2 &&
-                server_file.compare(server_file.size() - 2, 2, ".z") == 0;
-
-            if (looks_compressed) {
-                boost::iostreams::filtering_streambuf<boost::iostreams::input> in;
-                in.push(boost::iostreams::zlib_decompressor());
-                in.push(server_stream);
-                boost::iostreams::copy(in, xml_data);
-            } else {
-                xml_data << server_stream.rdbuf();
-            }
-        } catch (const boost::iostreams::zlib_error& e) {
-            std::cerr << "Failed to decompress server file '" << server_file << "': " << e.what() << std::endl;
+        if (!load_server_profile_from_stream(server_stream, looks_compressed(server_file), server_file)) {
             return -1;
-        } catch (const std::exception& e) {
-            std::cerr << "Error reading server file '" << server_file << "': " << e.what() << std::endl;
-            return -1;
-        }
-
-        const std::string xml_content = xml_data.str();
-        TiXmlDocument doc;
-        doc.Parse(xml_content.c_str());
-        if (doc.Error()) {
-            std::cerr << "Failed to parse server file '" << server_file << "': " << doc.ErrorDesc() << std::endl;
-            return -1;
-        }
-
-        TiXmlHandle docHandle(&doc);
-        const TiXmlElement* server_node = docHandle.FirstChild("ServerList").FirstChild("Server").ToElement();
-        if (!server_node) {
-            std::cerr << "Server file '" << server_file << "' does not contain a <ServerList>/<Server> element." << std::endl;
-            return -1;
-        }
-
-        const TiXmlElement* ipv4 = server_node->FirstChildElement("IPv4Address");
-        if (ipv4) {
-            const char* value = ipv4->Attribute("value");
-            if (value && *value) {
-                host = value;
-            }
-        }
-
-        const TiXmlElement* protobuf_port = server_node->FirstChildElement("ProtobufPort");
-        if (protobuf_port) {
-            const char* value = protobuf_port->Attribute("value");
-            if (value && *value) {
-                port = safe_stoi(value, port);
-            }
         }
     }
-#endif
+
+    if (vm.count("serverurl")) {
+        CURLcode curl_init = curl_global_init(CURL_GLOBAL_DEFAULT);
+        if (curl_init != CURLE_OK) {
+            std::cerr << "curl initialization failed (" << curl_easy_strerror(curl_init) << ")" << std::endl;
+            return -1;
+        }
+
+        CURL* curl = curl_easy_init();
+        if (!curl) {
+            std::cerr << "curl_easy_init failed" << std::endl;
+            curl_global_cleanup();
+            return -1;
+        }
+
+        std::string response;
+        curl_easy_setopt(curl, CURLOPT_URL, server_url.c_str());
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, CurlWriteToString);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+        CURLcode res = curl_easy_perform(curl);
+        curl_easy_cleanup(curl);
+        curl_global_cleanup();
+
+        if (res != CURLE_OK) {
+            std::cerr << "Failed to download server profile from '" << server_url << "': " << curl_easy_strerror(res) << std::endl;
+            return -1;
+        }
+
+        std::istringstream response_stream(response);
+        if (!load_server_profile_from_stream(response_stream, looks_compressed(server_url), server_url)) {
+            return -1;
+        }
+    }
 
     boost::asio::io_context io;
 
